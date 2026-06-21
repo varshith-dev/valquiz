@@ -13,6 +13,12 @@ async function main() {
   app.use(cors({ origin: env.CORS_ORIGIN }));
   app.use(express.json({ limit: '10mb' }));
 
+  // Request logger
+  app.use((req, _res, next) => {
+    console.log(`➡️ [REST] ${req.method} ${req.path}`);
+    next();
+  });
+
   // ─── HTTP Server ─────────────────────────────────────
   const httpServer = createServer(app);
 
