@@ -6,7 +6,6 @@ import { setPin, setQuestions, setStatus, setPlayers } from '../../store/gameSli
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import socketService from '../../services/socket';
 import useSocket from '../../hooks/useSocket';
-import supabase from '../../services/supabase';
 import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
 import type { Question } from '../../types/game';
 
@@ -23,22 +22,6 @@ export const HostLobby: React.FC = () => {
   const [selectedQuizId, setSelectedQuizId] = useState<string>('default');
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
-
-  // Authentication check on mount
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL.includes('placeholder-url');
-        if (!session && !isPlaceholder) {
-          navigate('/host/login');
-        }
-      } catch (err) {
-        console.warn('Supabase session check error, bypassing...', err);
-      }
-    };
-    checkAuth();
-  }, [navigate]);
 
   const handleCopyPin = () => {
     if (pin) {
