@@ -1,0 +1,93 @@
+{
+  "store": {
+    "game:959106:questions": "[{\"id\":\"q1\",\"text\":\"Which data structure is typically used for real-time leaderboards in Valkey?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey Sorted Sets (ZSET)\"},{\"id\":\"B\",\"text\":\"Valkey Hash\"},{\"id\":\"C\",\"text\":\"Valkey HyperLogLog\"},{\"id\":\"D\",\"text\":\"Valkey Pub/Sub Channels\"}],\"correct\":[\"A\"],\"timeLimit\":15,\"explanation\":\"\"},{\"id\":\"q2\",\"text\":\"How does Valkey compare to Redis?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey is closed-source\"},{\"id\":\"B\",\"text\":\"Valkey is a Linux Foundation open-source fork of Redis\"},{\"id\":\"C\",\"text\":\"Valkey only supports SQL syntax\"},{\"id\":\"D\",\"text\":\"Valkey is written in Python\"}],\"correct\":[\"B\"],\"timeLimit\":15,\"explanation\":\"\"}]",
+    "game:901674:questions": "[{\"id\":\"q_1\",\"text\":\"What is the primary purpose of create a quixz on react  hyderabad?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"To manage and organize create a quixz on react  hyderabad related tasks\"},{\"id\":\"B\",\"text\":\"To replace human decision-making entirely\"},{\"id\":\"C\",\"text\":\"To function without any external dependencies\"},{\"id\":\"D\",\"text\":\"To eliminate the need for user input\"}],\"correct\":[\"A\"],\"timeLimit\":20,\"explanation\":\"create a quixz on react  hyderabad is primarily designed to streamline and manage tasks efficiently within its domain.\"},{\"id\":\"q_2\",\"text\":\"In the context of create a quixz on react  hyderabad, what does \\\"scalability\\\" refer to?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"The ability to handle growing amounts of work gracefully\"},{\"id\":\"B\",\"text\":\"The physical size of the infrastructure\"},{\"id\":\"C\",\"text\":\"How many people are needed to manage it\"},{\"id\":\"D\",\"text\":\"The number of features it has\"}],\"correct\":[\"A\"],\"timeLimit\":25,\"explanation\":\"Scalability means the system can grow and handle increased demand without degrading performance.\"},{\"id\":\"q_3\",\"text\":\"Which skill is most important for mastering create a quixz on react  hyderabad?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Understanding core principles and hands-on practice\"},{\"id\":\"B\",\"text\":\"Memorizing every possible error code\"},{\"id\":\"C\",\"text\":\"Being able to type extremely fast\"},{\"id\":\"D\",\"text\":\"Knowing the entire history of computing\"}],\"correct\":[\"A\"],\"timeLimit\":20,\"explanation\":\"Practical understanding combined with theoretical knowledge leads to true mastery.\"},{\"id\":\"q_4\",\"text\":\"What makes create a quixz on react  hyderabad different from traditional approaches?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Modern architecture that addresses current industry needs\"},{\"id\":\"B\",\"text\":\"It is exactly the same but with a new name\"},{\"id\":\"C\",\"text\":\"It only works in theory, not practice\"},{\"id\":\"D\",\"text\":\"It requires a PhD to understand\"}],\"correct\":[\"A\"],\"timeLimit\":25,\"explanation\":\"create a quixz on react  hyderabad represents modern thinking in its domain, solving real problems with contemporary approaches.\"},{\"id\":\"q_5\",\"text\":\"Which of the following best describes a key characteristic of create a quixz on react  hyderabad?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Scalability and flexibility in handling diverse requirements\"},{\"id\":\"B\",\"text\":\"Complete isolation from other systems\"},{\"id\":\"C\",\"text\":\"Inability to integrate with modern tools\"},{\"id\":\"D\",\"text\":\"Requires proprietary hardware to run\"}],\"correct\":[\"A\"],\"timeLimit\":20,\"explanation\":\"create a quixz on react  hyderabad is known for its adaptable architecture that scales across different use cases.\"},{\"id\":\"q_6\",\"text\":\"Which concept is most closely related to advanced create a quixz on react  hyderabad usage?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Performance optimization and resource management\"},{\"id\":\"B\",\"text\":\"Manually processing every single operation\"},{\"id\":\"C\",\"text\":\"Avoiding all automation\"},{\"id\":\"D\",\"text\":\"Keeping everything in a single monolithic structure\"}],\"correct\":[\"A\"],\"timeLimit\":30,\"explanation\":\"Advanced usage typically focuses on optimizing performance and managing resources efficiently.\"},{\"id\":\"q_7\",\"text\":\"When working with create a quixz on react  hyderabad, what is considered best practice?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Following established patterns and documentation\"},{\"id\":\"B\",\"text\":\"Ignoring all conventions for maximum creativity\"},{\"id\":\"C\",\"text\":\"Rewriting everything from scratch each time\"},{\"id\":\"D\",\"text\":\"Avoiding collaboration with team members\"}],\"correct\":[\"A\"],\"timeLimit\":25,\"explanation\":\"Following best practices ensures maintainability, reliability, and team productivity.\"},{\"id\":\"q_8\",\"text\":\"What is a common challenge faced when implementing create a quixz on react  hyderabad?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Managing complexity and ensuring consistent behavior\"},{\"id\":\"B\",\"text\":\"Finding developers who have heard of it\"},{\"id\":\"C\",\"text\":\"Convincing people it exists\"},{\"id\":\"D\",\"text\":\"Getting permission from regulatory bodies\"}],\"correct\":[\"A\"],\"timeLimit\":25,\"explanation\":\"Complexity management is a universal challenge that requires careful architecture and testing.\"},{\"id\":\"q_9\",\"text\":\"How does create a quixz on react  hyderabad contribute to overall system efficiency?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"By streamlining processes and reducing overhead\"},{\"id\":\"B\",\"text\":\"By doubling the amount of manual work required\"},{\"id\":\"C\",\"text\":\"By adding unnecessary complexity\"},{\"id\":\"D\",\"text\":\"By requiring constant human intervention\"}],\"correct\":[\"A\"],\"timeLimit\":20,\"explanation\":\"Efficiency gains come from create a quixz on react  hyderabad's ability to automate and optimize core processes.\"},{\"id\":\"q_10\",\"text\":\"What is the future outlook for create a quixz on react  hyderabad?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Continued growth and increasing adoption across industries\"},{\"id\":\"B\",\"text\":\"It will be obsolete within a year\"},{\"id\":\"C\",\"text\":\"It will remain niche and rarely used\"},{\"id\":\"D\",\"text\":\"It will be replaced by something completely unrelated\"}],\"correct\":[\"A\"],\"timeLimit\":30,\"explanation\":\"create a quixz on react  hyderabad shows strong potential for growth as more organizations recognize its value.\"}]",
+    "game:212022:questions": "[{\"id\":\"q1\",\"text\":\"Which data structure is typically used for real-time leaderboards in Valkey?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey Sorted Sets (ZSET)\"},{\"id\":\"B\",\"text\":\"Valkey Hash\"},{\"id\":\"C\",\"text\":\"Valkey HyperLogLog\"},{\"id\":\"D\",\"text\":\"Valkey Pub/Sub Channels\"}],\"correct\":[\"A\"],\"timeLimit\":15,\"explanation\":\"\"},{\"id\":\"q2\",\"text\":\"How does Valkey compare to Redis?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey is closed-source\"},{\"id\":\"B\",\"text\":\"Valkey is a Linux Foundation open-source fork of Redis\"},{\"id\":\"C\",\"text\":\"Valkey only supports SQL syntax\"},{\"id\":\"D\",\"text\":\"Valkey is written in Python\"}],\"correct\":[\"B\"],\"timeLimit\":15,\"explanation\":\"\"}]",
+    "game:339318:questions": "[{\"id\":\"q1\",\"text\":\"Which data structure is typically used for real-time leaderboards in Valkey?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey Sorted Sets (ZSET)\"},{\"id\":\"B\",\"text\":\"Valkey Hash\"},{\"id\":\"C\",\"text\":\"Valkey HyperLogLog\"},{\"id\":\"D\",\"text\":\"Valkey Pub/Sub Channels\"}],\"correct\":[\"A\"],\"timeLimit\":15,\"explanation\":\"\"},{\"id\":\"q2\",\"text\":\"How does Valkey compare to Redis?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey is closed-source\"},{\"id\":\"B\",\"text\":\"Valkey is a Linux Foundation open-source fork of Redis\"},{\"id\":\"C\",\"text\":\"Valkey only supports SQL syntax\"},{\"id\":\"D\",\"text\":\"Valkey is written in Python\"}],\"correct\":[\"B\"],\"timeLimit\":15,\"explanation\":\"\"}]",
+    "game:111341:questions": "[{\"id\":\"q1\",\"text\":\"Which data structure is typically used for real-time leaderboards in Valkey?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey Sorted Sets (ZSET)\"},{\"id\":\"B\",\"text\":\"Valkey Hash\"},{\"id\":\"C\",\"text\":\"Valkey HyperLogLog\"},{\"id\":\"D\",\"text\":\"Valkey Pub/Sub Channels\"}],\"correct\":[\"A\"],\"timeLimit\":15,\"explanation\":\"\"},{\"id\":\"q2\",\"text\":\"How does Valkey compare to Redis?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey is closed-source\"},{\"id\":\"B\",\"text\":\"Valkey is a Linux Foundation open-source fork of Redis\"},{\"id\":\"C\",\"text\":\"Valkey only supports SQL syntax\"},{\"id\":\"D\",\"text\":\"Valkey is written in Python\"}],\"correct\":[\"B\"],\"timeLimit\":15,\"explanation\":\"\"}]",
+    "game:634923:questions": "[{\"id\":\"q1\",\"text\":\"Which data structure is typically used for real-time leaderboards in Valkey?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey Sorted Sets (ZSET)\"},{\"id\":\"B\",\"text\":\"Valkey Hash\"},{\"id\":\"C\",\"text\":\"Valkey HyperLogLog\"},{\"id\":\"D\",\"text\":\"Valkey Pub/Sub Channels\"}],\"correct\":[\"A\"],\"timeLimit\":15,\"explanation\":\"\"},{\"id\":\"q2\",\"text\":\"How does Valkey compare to Redis?\",\"type\":\"mcq\",\"options\":[{\"id\":\"A\",\"text\":\"Valkey is closed-source\"},{\"id\":\"B\",\"text\":\"Valkey is a Linux Foundation open-source fork of Redis\"},{\"id\":\"C\",\"text\":\"Valkey only supports SQL syntax\"},{\"id\":\"D\",\"text\":\"Valkey is written in Python\"}],\"correct\":[\"B\"],\"timeLimit\":15,\"explanation\":\"\"}]"
+  },
+  "hashes": {
+    "game:959106:config": {
+      "pin": "959106",
+      "hostId": "b_SW5g2P8Gs-aUZGAAAE",
+      "status": "lobby",
+      "mode": "classic",
+      "currentQuestion": 0,
+      "totalQuestions": "2",
+      "createdAt": 1782040154703
+    },
+    "game:901674:config": {
+      "pin": "901674",
+      "hostId": "b_SW5g2P8Gs-aUZGAAAE",
+      "status": "playing",
+      "mode": "classic",
+      "currentQuestion": 0,
+      "totalQuestions": "10",
+      "createdAt": 1782040154705
+    },
+    "game:901674:players": {
+      "qweer": "{\"nickname\":\"qweer\",\"socketId\":\"Fccn4p97GIwMcT-LAAAH\",\"joinedAt\":1782040175639,\"powerUps\":[\"freeze\",\"double\",\"skip\"]}"
+    },
+    "game:901674:streaks": {
+      "qweer": "0"
+    },
+    "game:212022:config": {
+      "pin": "212022",
+      "hostId": "HAfyFrIsIG1-0C59AAAL",
+      "status": "lobby",
+      "mode": "classic",
+      "currentQuestion": 0,
+      "totalQuestions": "2",
+      "createdAt": 1782040453060
+    },
+    "game:339318:config": {
+      "pin": "339318",
+      "hostId": "HAfyFrIsIG1-0C59AAAL",
+      "status": "playing",
+      "mode": "classic",
+      "currentQuestion": 0,
+      "totalQuestions": "2",
+      "createdAt": 1782040453062
+    },
+    "game:339318:players": {},
+    "game:339318:streaks": {},
+    "game:111341:config": {
+      "pin": "111341",
+      "hostId": "HAfyFrIsIG1-0C59AAAL",
+      "status": "lobby",
+      "mode": "classic",
+      "currentQuestion": 0,
+      "totalQuestions": "2",
+      "createdAt": 1782041072842
+    },
+    "game:634923:config": {
+      "pin": "634923",
+      "hostId": "HAfyFrIsIG1-0C59AAAL",
+      "status": "podium",
+      "mode": "classic",
+      "currentQuestion": "2",
+      "totalQuestions": "2",
+      "createdAt": 1782041072843
+    },
+    "game:634923:players": {
+      "SubPlayer": "{\"nickname\":\"SubPlayer\",\"socketId\":\"xZAAunKAcjcG1qc3AAAg\",\"joinedAt\":1782041156405,\"powerUps\":[\"freeze\",\"double\",\"skip\"]}"
+    },
+    "game:634923:streaks": {
+      "SubPlayer": "1"
+    }
+  },
+  "sortedSets": {
+    "game:901674:leaderboard": {
+      "qweer": 0
+    },
+    "game:339318:leaderboard": {},
+    "game:634923:leaderboard": {
+      "SubPlayer": 418
+    }
+  },
+  "ttlMap": {},
+  "counters": {
+    "rate:join:::1": 4
+  }
+}

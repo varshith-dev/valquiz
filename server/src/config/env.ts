@@ -3,12 +3,14 @@ import { ValkeyMock } from './ValkeyMock.js';
 
 const Redis = (iovalkey as any).default || (iovalkey as any).Redis || iovalkey;
 
+// All secrets loaded from environment variables.
+// Copy .env.example to .env and fill in values before running.
 export const env = {
   PORT: parseInt(process.env.PORT || '3000', 10),
   VALKEY_URL: process.env.VALKEY_URL || 'redis://localhost:6379',
-  GEMINI_API_KEY: process.env.GEMINI_API_KEY || 'AQ.Ab8RN6KyNFC6i5kfIhrvcz68V4JbcV4aT9GT65LymQvpnxsvKg',
-  BREETH_API_KEY: process.env.BREETH_API_KEY || 'ck_live_xGYiVCh7l6oiPodB5u9asypwKpafrpSzuVMhiZTyuaw',
-  OQENS_API_KEY: process.env.OQENS_API_KEY || 'oqens_api_29721bde7a83c7df66f24e6f97b5903c8ebfaf389e4a7584',
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+  BREETH_API_KEY: process.env.BREETH_API_KEY || '',
+  OQENS_API_KEY: process.env.OQENS_API_KEY || '',
   OQENS_CLOUD_ID: process.env.OQENS_CLOUD_ID || '',
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
 };
