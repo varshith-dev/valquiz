@@ -1,0 +1,394 @@
+import React, { useEffect, useState } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
+import type { RootState } from '../../store';
+import { setStatus, setPin } from '../../store/gameSlice';
+import { setNickname } from '../../store/playerSlice';
+import useSocket from '../../hooks/useSocket';
+import socketService from '../../services/socket';
+import { Check, AlertCircle } from 'lucide-react';
+
+export const PlayerLobby: React.FC = () => {
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
+
+  const { pin } = useSelector((state: RootState) => state.game);
+  const { nickname } = useSelector((state: RootState) => state.player);
+
+  const [dots, setDots] = useState('.');
+  
+  // Nickname entry states
+  const [inputName, setInputName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Pool of names already occupied in the session (simulated joined pool + dynamic socket updates)
+  const [occupiedPool, setOccupiedPool] = useState<string[]>(['ValkeyBot_1', 'SpeedRunner', 'QuizMaster']);
+
+  // Handle window width resize to make bubble offsets responsive
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobile = windowWidth < 768;
+
+  // Restore pin/nickname and handle auto-connection if page was refreshed
+  useEffect(() => {
+    const storedPin = sessionStorage.getItem('valquiz_pin');
+    const storedNickname = sessionStorage.getItem('valquiz_nickname');
+
+    if (storedPin && !pin) {
+      dispatch(setPin(storedPin));
+    }
+    if (storedNickname && !nickname) {
+      dispatch(setNickname(storedNickname));
+    }
+  }, [dispatch, pin, nickname]);
+
+  // Handle socket connection/reconnection
+  useEffect(() => {
+    const activePin = pin || sessionStorage.getItem('valquiz_pin');
+    const activeNick = nickname || sessionStorage.getItem('valquiz_nickname');
+
+    if (activePin && activeNick && !socketService.socket) {
+      socketService.connect(activePin, activeNick);
+    }
+  }, [pin, nickname]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((d) => (d.length >= 3 ? '.' : d + '.'));
+    }, 600);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Listen for socket notifications updating the roster
+  useSocket('lobby:roster-update', (roster: string[]) => {
+    if (roster && roster.length > 0) {
+      setOccupiedPool(roster);
+    }
+  });
+
+  useSocket('game:start', () => {
+    dispatch(setStatus('question'));
+    navigate('/player/question');
+  });
+
+  const handleNicknameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = inputName.trim();
+
+    if (!trimmed || trimmed.length < 2) {
+      setError('Nickname must be at least 2 characters');
+      return;
+    }
+
+    // Uniqueness validation from the joined pool
+    if (occupiedPool.some(name => name.toLowerCase() === trimmed.toLowerCase())) {
+      setError('Name taken');
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+
+    // Save details to Redux & sessionStorage, connect WebSocket and join lobby
+    setTimeout(() => {
+      dispatch(setNickname(trimmed));
+      sessionStorage.setItem('valquiz_nickname', trimmed);
+      socketService.connect(pin, trimmed);
+      setLoading(false);
+    }, 800);
+  };
+
+  const handleSimulateGame = () => {
+    dispatch(setStatus('question'));
+    navigate('/player/question');
+  };
+
+  // Concentric ellipse layer-wise layout centered in the viewport container
+  const getBubblePosition = (index: number, total: number) => {
+    if (index === 0) return { x: 0, y: 0 };
+
+    // Determine layer and capacity configuration
+    let remaining = index - 1; // Subtract the center element (index 0)
+    let layer = 1;
+    let layerCapacity = 5; // Layer 1 capacity (use 5 instead of 6 to give more angular separation)
+
+    while (remaining >= layerCapacity) {
+      remaining -= layerCapacity;
+      layer++;
+      layerCapacity = layer * 5; // Subsequent layers hold layer * 5 elements
+    }
+
+    // Determine how many elements are actually placed in this layer in total
+    let totalInThisLayer = 0;
+    let tempRemaining = total - 1; // Roster count minus center
+    let currentLayer = 1;
+
+    while (tempRemaining > 0) {
+      const cap = currentLayer * 5;
+      if (currentLayer === layer) {
+        totalInThisLayer = Math.min(tempRemaining, cap);
+        break;
+      }
+      tempRemaining -= cap;
+      currentLayer++;
+    }
+
+    // Spacing between layers
+    // Using an ellipse factor to account for wide bubbles (160px wide vs 50px high)
+    const horizontalScale = isMobile ? 1.75 : 1.7;
+    const verticalScale = isMobile ? 0.95 : 0.85;
+
+    let ringDistance = isMobile ? 80 : 105;
+    
+    // Smooth compression for large crowds, but maintain a safe minimum to prevent overlaps
+    if (total > 6) {
+      const compression = Math.max(0.8, 1 - (total - 6) * 0.015);
+      ringDistance *= compression;
+    }
+
+    const radius = layer * ringDistance;
+    const countInLayer = totalInThisLayer || layerCapacity;
+    
+    // Equal angular spacing along the ellipse
+    const angleIncrement = (2 * Math.PI) / countInLayer;
+
+    // Shift start angle of each layer to stagger them beautifully
+    const staggerOffset = (layer * 36 * Math.PI) / 180;
+    const angle = remaining * angleIncrement + staggerOffset;
+
+    return {
+      x: radius * Math.cos(angle) * horizontalScale,
+      y: radius * Math.sin(angle) * verticalScale,
+    };
+  };
+
+  // 1. NICKNAME SELECTION STATE (If name is not set yet)
+  if (!nickname) {
+    return (
+      <div className="brutalist-container">
+        <div className="brutalist-card" style={{ width: '100%', maxWidth: '440px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+            <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.75rem', textTransform: 'uppercase' }}>
+              Choose Roster Name
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', marginTop: '6px' }}>
+              Room PIN: {pin || '000000'} • Choose a unique name from the joined pool
+            </p>
+          </div>
+
+          {error && (
+            <div
+              style={{
+                padding: '12px',
+                border: '3px solid var(--text-primary)',
+                backgroundColor: 'var(--color-red)',
+                color: 'white',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleNicknameSubmit}>
+            <label className="brutalist-label">Choose Nickname</label>
+            <input
+              type="text"
+              placeholder="e.g. MasterQuiz"
+              value={inputName}
+              onChange={(e) => setInputName(e.target.value.slice(0, 16))}
+              className="brutalist-input"
+              disabled={loading}
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="brutalist-button brutalist-button-green"
+              disabled={loading}
+              style={{ marginTop: '8px' }}
+            >
+              {loading ? 'Validating...' : 'Confirm Nickname'} <Check size={18} />
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. ACTIVE LOBBY WAITING STATE (If name is successfully configured)
+  const allJoinedPlayers = occupiedPool.concat(occupiedPool.includes(nickname) ? [] : [nickname]);
+
+  const handleQuit = () => {
+    dispatch(setNickname(''));
+    sessionStorage.removeItem('valquiz_pin');
+    sessionStorage.removeItem('valquiz_nickname');
+    socketService.disconnect();
+    navigate('/play');
+  };
+
+  return (
+    <div 
+      style={{
+        padding: '32px 24px',
+        maxWidth: '1200px',
+        margin: '0 auto',
+        minHeight: '100vh',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+    >
+      {/* Top Header: PIN & Small Quit Button */}
+      <div 
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '32px',
+          borderBottom: '3px solid var(--border-color)',
+          paddingBottom: '16px'
+        }}
+      >
+        <span 
+          onClick={handleSimulateGame}
+          style={{
+            fontFamily: 'var(--font-title)',
+            fontWeight: 900,
+            fontSize: '1.5rem',
+            cursor: 'pointer',
+            userSelect: 'none',
+            letterSpacing: '0.5px'
+          }}
+          title="Simulate game progression"
+        >
+          ROOM PIN: {pin || '000000'}
+        </span>
+        <button
+          onClick={handleQuit}
+          className="brutalist-button"
+          style={{
+            width: 'auto',
+            padding: '8px 16px',
+            fontSize: '0.85rem',
+            fontWeight: 800,
+            backgroundColor: 'var(--color-red)',
+            color: 'white',
+            boxShadow: '3px 3px 0px var(--text-primary)',
+            border: '2px solid var(--text-primary)'
+          }}
+        >
+          QUIT
+        </button>
+      </div>
+
+      {/* Waiting Status */}
+      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <p style={{ fontWeight: 800, fontSize: '1.2rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          Waiting for the host to start{dots}
+        </p>
+      </div>
+
+      {/* Joined Players Pool Cloud - Borderless & Starting from Center */}
+      <div 
+        style={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%'
+        }}
+      >
+        <div 
+          style={{ 
+            fontSize: '0.95rem', 
+            fontWeight: 850, 
+            textTransform: 'uppercase', 
+            marginBottom: '16px', 
+            borderBottom: '2px solid var(--border-color)', 
+            paddingBottom: '10px',
+            color: 'var(--text-secondary)'
+          }}
+        >
+          Joined Pool ({allJoinedPlayers.length})
+        </div>
+        
+        {/* Dynamic Bubble Canvas */}
+        <div 
+          style={{ 
+            position: 'relative',
+            width: '100%',
+            minHeight: isMobile ? '360px' : '500px',
+            flexGrow: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'visible',
+            boxSizing: 'border-box'
+          }}
+        >
+          {allJoinedPlayers.map((player, index) => {
+            const { x, y } = getBubblePosition(index, allJoinedPlayers.length);
+            const isSelf = player === nickname;
+            return (
+              <div 
+                key={player}
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                  zIndex: isSelf ? 10 : 1,
+                  pointerEvents: 'auto',
+                  transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                }}
+              >
+                <div 
+                  className="animate-bubble-pop"
+                  style={{
+                    fontSize: isMobile ? '0.85rem' : '0.95rem',
+                    fontWeight: 800,
+                    padding: isMobile ? '10px 18px' : '14px 24px',
+                    borderRadius: '9999px',
+                    backgroundColor: isSelf 
+                      ? 'var(--color-yellow)' 
+                      : 'var(--bg-secondary)',
+                    color: isSelf 
+                      ? '#272320' 
+                      : 'var(--text-primary)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.04)',
+                    border: '1.5px solid var(--border-color)',
+                    textAlign: 'center',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    width: isMobile ? '130px' : '160px',
+                    boxSizing: 'border-box',
+                    userSelect: 'none',
+                    transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease'
+                  }}
+                  title={player}
+                >
+                  {player}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PlayerLobby;

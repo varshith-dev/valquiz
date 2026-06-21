@@ -1,0 +1,36 @@
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import type { Quiz } from '../types/game';
+
+export const quizApi = createApi({
+  reducerPath: 'quizApi',
+  baseQuery: fetchBaseQuery({ baseUrl: '/api' }),
+  endpoints: (builder) => ({
+    generateQuiz: builder.mutation<Quiz, { topic: string; num_questions?: number; difficulty?: string }>({
+      query: (body) => ({
+        url: '/quiz/generate',
+        method: 'POST',
+        body,
+      }),
+    }),
+    getQuiz: builder.query<Quiz, string>({
+      query: (id) => `/quiz/${id}`,
+    }),
+    createQuiz: builder.mutation<Quiz, Partial<Quiz>>({
+      query: (body) => ({
+        url: '/quiz',
+        method: 'POST',
+        body,
+      }),
+    }),
+    getQuizzes: builder.query<Quiz[], void>({
+      query: () => '/quizzes',
+    }),
+  }),
+});
+
+export const {
+  useGenerateQuizMutation,
+  useGetQuizQuery,
+  useCreateQuizMutation,
+  useGetQuizzesQuery,
+} = quizApi;

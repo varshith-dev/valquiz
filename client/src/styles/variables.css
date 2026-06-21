@@ -1,0 +1,71 @@
+:root {
+  /* Layout Dimensions */
+  --nav-rail-width: 80px;
+
+  /* Font Semantics */
+  --font-title: 'Outfit', 'Inter', sans-serif;
+  --font-body: 'Inter', sans-serif;
+
+  /* Question Options - Classic High Contrast Fills */
+  --color-red: #ef4444;        /* Classic red */
+  --color-blue: #3b82f6;       /* Classic blue */
+  --color-yellow: #eab308;     /* Classic yellow */
+  --color-green: #22c55e;      /* Classic green */
+  
+  /* Brand/Accent Colors */
+  --color-brand: #6366f1;      /* Indigo accent */
+  --color-accent: #f43f5e;     /* Rose highlight */
+
+  /* Neo-brutalist Layout Sizes */
+  --brutalist-border-width: 3px;
+
+  /* Default Light Theme Values */
+  --bg-primary: #ffffff;       /* Pure Light White */
+  --text-primary: #272320;     /* Charcoal / Dark Warm Cocoa */
+  --text-secondary: #5e5854;   /* Balanced secondary dark text */
+  --bg-secondary: #f3f4f6;     /* Cool light gray background */
+  --border-color: #272320;     /* High-contrast solid border color */
+  --card-bg-glass: rgba(243, 244, 246, 0.4);
+  --dot-color: rgba(39, 35, 32, 0.09); /* Dot grid color */
+  --brutalist-shadow: 4px 4px 0px var(--text-primary);
+  --brutalist-shadow-lg: 8px 8px 0px var(--text-primary);
+}
+
+/* Light Theme Explicit Selector */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --text-primary: #272320;
+  --text-secondary: #5e5854;
+  --bg-secondary: #f3f4f6;
+  --border-color: #272320;
+  --card-bg-glass: rgba(243, 244, 246, 0.4);
+  --dot-color: rgba(39, 35, 32, 0.09);
+  --brutalist-shadow: 4px 4px 0px var(--text-primary);
+  --brutalist-shadow-lg: 8px 8px 0px var(--text-primary);
+}
+
+/* Dark Theme (Warm Charcoal Background & Light Warm Off-White Text) */
+[data-theme="dark"] {
+  --bg-primary: #121212;       /* Pure dark mode background */
+  --text-primary: #f8f4f1;     /* Warm Off-White Text */
+  --text-secondary: #a8a29e;   /* Lighter grey/warm secondary text */
+  --bg-secondary: #1c1917;     /* Dark warm stone background for cards */
+  --border-color: #f8f4f1;     /* High-contrast light borders */
+  --card-bg-glass: rgba(28, 25, 23, 0.6);
+  --dot-color: rgba(248, 244, 241, 0.08); /* Soft white dots for dark grid */
+  --brutalist-shadow: 4px 4px 0px var(--text-primary);
+  --brutalist-shadow-lg: 8px 8px 0px var(--text-primary);
+}
+
+/* High Contrast Theme (Pure Black and Pure White for maximum visual accessibility) */
+[data-theme="high-contrast"] {
+  --bg-primary: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --bg-secondary: #000000;
+  --border-color: #ffffff;
+  --card-bg-glass: rgba(0, 0, 0, 0.9);
+  --dot-color: transparent;    /* Completely remove background grid pattern */
+  --brutalist-shadow: 4px 4px 0px var(--text-primary);
+  --brutalist-shadow-lg: 8px 8px 0px var(--text-primary);
+}

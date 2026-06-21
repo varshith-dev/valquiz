@@ -1,0 +1,225 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  background-image: 
+    linear-gradient(var(--dot-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--dot-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-title);
+  font-weight: 700;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-secondary);
+  border: 2px solid var(--bg-primary);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
+
+/* ==========================================================================
+   MINIMALIST SYSTEMS (Host App Focused)
+   ========================================================================== */
+.minimalist-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.minimalist-main {
+  flex: 1;
+  padding: 40px;
+  margin-left: var(--nav-rail-width);
+  background-color: var(--bg-primary);
+}
+
+.minimalist-header {
+  border-bottom: 2px solid var(--text-primary);
+  padding-bottom: 16px;
+  margin-bottom: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.minimalist-card {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  opacity: 0.9;
+  padding: 24px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+.minimalist-card:hover {
+  border-color: var(--text-primary);
+  opacity: 1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.minimalist-button {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--text-primary);
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+.minimalist-button:hover {
+  background-color: var(--text-primary);
+  color: var(--bg-primary);
+}
+.minimalist-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.minimalist-button-primary {
+  background-color: var(--text-primary);
+  color: var(--bg-primary);
+  border: 1px solid var(--text-primary);
+}
+.minimalist-button-primary:hover {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   NEO-BRUTALIST SYSTEMS (Player App Focused)
+   ========================================================================== */
+.brutalist-container {
+  min-height: 100vh;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+}
+
+.brutalist-card {
+  background-color: var(--bg-primary);
+  border: var(--brutalist-border-width) solid var(--text-primary);
+  box-shadow: var(--brutalist-shadow);
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 24px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.brutalist-button {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: var(--brutalist-border-width) solid var(--text-primary);
+  box-shadow: var(--brutalist-shadow);
+  padding: 16px 24px;
+  font-family: var(--font-title);
+  font-size: 1.1rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  position: relative;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  user-select: none;
+}
+.brutalist-button:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0px 0px 0px var(--text-primary);
+}
+.brutalist-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.brutalist-button-red { background-color: var(--color-red); color: white; }
+.brutalist-button-blue { background-color: var(--color-blue); color: white; }
+.brutalist-button-yellow { background-color: var(--color-yellow); color: #272320; }
+.brutalist-button-green { background-color: var(--color-green); color: white; }
+
+.brutalist-input {
+  width: 100%;
+  padding: 16px;
+  font-size: 1.25rem;
+  font-family: var(--font-title);
+  font-weight: 700;
+  border: var(--brutalist-border-width) solid var(--text-primary);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  margin-bottom: 16px;
+  box-shadow: var(--brutalist-shadow);
+  transition: focus 0.15s ease;
+}
+.brutalist-input:focus {
+  background-color: #ffffff;
+  box-shadow: 6px 6px 0px var(--text-primary);
+  transform: translate(-2px, -2px);
+}
+
+.brutalist-label {
+  display: block;
+  font-family: var(--font-title);
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+/* Geometric accessibility shape icons */
+.shape-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-block;
+  fill: currentColor;
+  stroke: var(--text-primary);
+  stroke-width: 2px;
+}
+
+/* Prevent blinking text carets / selection cursors on touch/click for layout elements */
+body, h1, h2, h3, h4, h5, h6, p, div, span, button, a {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Ensure form input elements still allow normal text selection and blinking cursor inputs */
+input, textarea, select, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
