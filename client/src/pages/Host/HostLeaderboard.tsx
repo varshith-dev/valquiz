@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
@@ -6,7 +6,9 @@ import { setCurrentQuestionIndex, setStatus, setPlayers } from '../../store/game
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import LeaderboardBar from '../../components/Leaderboard/LeaderboardBar';
 import socketService from '../../services/socket';
+import useSocket from '../../hooks/useSocket';
 import { Trophy, ArrowRight, Award } from 'lucide-react';
+import type { LeaderboardEntry } from '../../types/game';
 
 export const HostLeaderboard: React.FC = () => {
   const navigate = useNavigate();
@@ -14,39 +16,44 @@ export const HostLeaderboard: React.FC = () => {
 
   const { questions, currentQuestionIndex, players, pin } = useSelector((state: RootState) => state.game);
   
-  // Use mock players if store is empty
-  const activePlayers = players.length > 0 ? players : [
-    { nickname: 'SpeedRunner', score: 1850, streak: 2, rank: 1 },
-    { nickname: 'ValkeyBot_1', score: 1420, streak: 1, rank: 2 },
-    { nickname: 'QuizMaster', score: 950, streak: 0, rank: 3 },
-  ];
+  // Use Redux players (updated by HostQuestion leaderboard:update)
+  const activePlayers = players.length > 0 ? players : [];
 
   const maxScore = activePlayers.reduce((max, p) => p.score > max ? p.score : max, 0);
 
-  const isLastQuestion = currentQuestionIndex >= questions.length - 1 || currentQuestionIndex >= 1;
+  const isLastQuestion = currentQuestionIndex >= questions.length - 1;
+
+  // Listen for leaderboard updates (may arrive after we navigate here)
+  const handleLeaderboardUpdate = useCallback((data: any) => {
+    if (data.leaderboard) {
+      const playerObjects = data.leaderboard.map((entry: LeaderboardEntry) => ({
+        nickname: entry.nickname,
+        score: entry.score,
+        streak: entry.streak,
+        rank: entry.rank,
+      }));
+      dispatch(setPlayers(playerObjects));
+    }
+  }, [dispatch]);
+  useSocket('leaderboard:update', handleLeaderboardUpdate);
+
+  // Listen for game finished event
+  const handleGameFinished = useCallback(() => {
+    dispatch(setStatus('podium'));
+    navigate('/host/podium');
+  }, [dispatch, navigate]);
+  useSocket('game:finished', handleGameFinished);
 
   const handleNextStep = () => {
     if (isLastQuestion) {
-      // Emit end game socket event
-      socketService.emit('game:end-session', { pin });
-      dispatch(setStatus('podium'));
-      navigate('/host/podium');
+      // Emit host:next to let the server transition to the podium state and broadcast podium:reveal
+      socketService.emit('host:next', { pin });
     } else {
-      // Increment question and navigate back
+      // Emit host:next to advance to the next question
+      socketService.emit('host:next', { pin });
+      
       const nextIdx = currentQuestionIndex + 1;
       dispatch(setCurrentQuestionIndex(nextIdx));
-      
-      // Emit next question start socket
-      socketService.emit('game:next-question', { pin, questionIndex: nextIdx });
-      
-      // Update local mock scores
-      const updatedMockPlayers = activePlayers.map((p, idx) => ({
-        ...p,
-        score: p.score + (idx === 0 ? 920 : idx === 1 ? 840 : 0),
-        streak: idx === 0 ? 3 : idx === 1 ? 2 : 0,
-      }));
-      dispatch(setPlayers(updatedMockPlayers));
-
       dispatch(setStatus('question'));
       navigate('/host/question');
     }
@@ -92,17 +99,23 @@ export const HostLeaderboard: React.FC = () => {
             justifyContent: 'center'
           }}
         >
-          {activePlayers.map((player, idx) => (
-            <LeaderboardBar
-              key={player.nickname}
-              nickname={player.nickname}
-              score={player.score}
-              rank={idx + 1}
-              streak={player.streak}
-              isMaxScore={player.score === maxScore}
-              maxScore={maxScore}
-            />
-          ))}
+          {activePlayers.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 600, padding: '40px 0' }}>
+              No player scores yet. Scores will appear after players answer questions.
+            </div>
+          ) : (
+            activePlayers.map((player, idx) => (
+              <LeaderboardBar
+                key={player.nickname}
+                nickname={player.nickname}
+                score={player.score}
+                rank={idx + 1}
+                streak={player.streak}
+                isMaxScore={player.score === maxScore}
+                maxScore={maxScore}
+              />
+            ))
+          )}
 
           <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>
             <Award size={16} /> Leaderboard is real-time, synchronized across all active player sockets

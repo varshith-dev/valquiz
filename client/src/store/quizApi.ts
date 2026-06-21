@@ -23,7 +23,7 @@ export const quizApi = createApi({
       }),
     }),
     getQuizzes: builder.query<Quiz[], void>({
-      query: () => '/quizzes',
+      query: () => '/quiz',
     }),
   }),
 });

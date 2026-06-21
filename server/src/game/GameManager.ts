@@ -131,7 +131,7 @@ export class GameManager {
   static async getPlayers(pin: string): Promise<Player[]> {
     const v = await getValkey();
     const raw = await v.hGetAll(`game:${pin}:players`);
-    return Object.values(raw).map((s) => JSON.parse(s));
+    return Object.values(raw).map((s) => JSON.parse(s as string));
   }
 
   // ─── Get Player by Nickname ──────────────────────────

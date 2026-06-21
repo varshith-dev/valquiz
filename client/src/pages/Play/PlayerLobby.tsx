@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
@@ -22,8 +22,8 @@ export const PlayerLobby: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Pool of names already occupied in the session (simulated joined pool + dynamic socket updates)
-  const [occupiedPool, setOccupiedPool] = useState<string[]>(['ValkeyBot_1', 'SpeedRunner', 'QuizMaster']);
+  // Players in the lobby (populated by socket events)
+  const [lobbyPlayers, setLobbyPlayers] = useState<string[]>([]);
 
   // Handle window width resize to make bubble offsets responsive
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
@@ -49,15 +49,13 @@ export const PlayerLobby: React.FC = () => {
     }
   }, [dispatch, pin, nickname]);
 
-  // Handle socket connection/reconnection
+  // Connect socket when we have a pin
   useEffect(() => {
     const activePin = pin || sessionStorage.getItem('valquiz_pin');
-    const activeNick = nickname || sessionStorage.getItem('valquiz_nickname');
-
-    if (activePin && activeNick && !socketService.socket) {
-      socketService.connect(activePin, activeNick);
+    if (activePin) {
+      socketService.connect();
     }
-  }, [pin, nickname]);
+  }, [pin]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -66,17 +64,23 @@ export const PlayerLobby: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Listen for socket notifications updating the roster
-  useSocket('lobby:roster-update', (roster: string[]) => {
-    if (roster && roster.length > 0) {
-      setOccupiedPool(roster);
+  // Listen for other players joining
+  const handlePlayerJoined = useCallback((data: any) => {
+    if (data.nickname) {
+      setLobbyPlayers(prev => {
+        if (prev.includes(data.nickname)) return prev;
+        return [...prev, data.nickname];
+      });
     }
-  });
+  }, []);
+  useSocket('player:joined', handlePlayerJoined);
 
-  useSocket('game:start', () => {
+  // Listen for game start from host
+  const handleGameStart = useCallback(() => {
     dispatch(setStatus('question'));
     navigate('/player/question');
-  });
+  }, [dispatch, navigate]);
+  useSocket('game:start', handleGameStart);
 
   const handleNicknameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,47 +91,46 @@ export const PlayerLobby: React.FC = () => {
       return;
     }
 
-    // Uniqueness validation from the joined pool
-    if (occupiedPool.some(name => name.toLowerCase() === trimmed.toLowerCase())) {
-      setError('Name taken');
-      return;
-    }
-
     setError('');
     setLoading(true);
 
-    // Save details to Redux & sessionStorage, connect WebSocket and join lobby
-    setTimeout(() => {
+    const activePin = pin || sessionStorage.getItem('valquiz_pin') || '';
+
+    // Emit player:join to server with callback
+    socketService.emit('player:join', {
+      pin: activePin,
+      nickname: trimmed,
+    }, (res: any) => {
+      setLoading(false);
+      if (!res.success) {
+        setError(res.error || 'Failed to join game');
+        return;
+      }
+
+      // Successfully joined
       dispatch(setNickname(trimmed));
       sessionStorage.setItem('valquiz_nickname', trimmed);
-      socketService.connect(pin, trimmed);
-      setLoading(false);
-    }, 800);
-  };
-
-  const handleSimulateGame = () => {
-    dispatch(setStatus('question'));
-    navigate('/player/question');
+      // Add self to lobby list
+      setLobbyPlayers(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+    });
   };
 
   // Concentric ellipse layer-wise layout centered in the viewport container
   const getBubblePosition = (index: number, total: number) => {
     if (index === 0) return { x: 0, y: 0 };
 
-    // Determine layer and capacity configuration
-    let remaining = index - 1; // Subtract the center element (index 0)
+    let remaining = index - 1;
     let layer = 1;
-    let layerCapacity = 5; // Layer 1 capacity (use 5 instead of 6 to give more angular separation)
+    let layerCapacity = 5;
 
     while (remaining >= layerCapacity) {
       remaining -= layerCapacity;
       layer++;
-      layerCapacity = layer * 5; // Subsequent layers hold layer * 5 elements
+      layerCapacity = layer * 5;
     }
 
-    // Determine how many elements are actually placed in this layer in total
     let totalInThisLayer = 0;
-    let tempRemaining = total - 1; // Roster count minus center
+    let tempRemaining = total - 1;
     let currentLayer = 1;
 
     while (tempRemaining > 0) {
@@ -140,14 +143,11 @@ export const PlayerLobby: React.FC = () => {
       currentLayer++;
     }
 
-    // Spacing between layers
-    // Using an ellipse factor to account for wide bubbles (160px wide vs 50px high)
     const horizontalScale = isMobile ? 1.75 : 1.7;
     const verticalScale = isMobile ? 0.95 : 0.85;
 
     let ringDistance = isMobile ? 80 : 105;
     
-    // Smooth compression for large crowds, but maintain a safe minimum to prevent overlaps
     if (total > 6) {
       const compression = Math.max(0.8, 1 - (total - 6) * 0.015);
       ringDistance *= compression;
@@ -156,10 +156,7 @@ export const PlayerLobby: React.FC = () => {
     const radius = layer * ringDistance;
     const countInLayer = totalInThisLayer || layerCapacity;
     
-    // Equal angular spacing along the ellipse
     const angleIncrement = (2 * Math.PI) / countInLayer;
-
-    // Shift start angle of each layer to stagger them beautifully
     const staggerOffset = (layer * 36 * Math.PI) / 180;
     const angle = remaining * angleIncrement + staggerOffset;
 
@@ -179,7 +176,7 @@ export const PlayerLobby: React.FC = () => {
               Choose Roster Name
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', marginTop: '6px' }}>
-              Room PIN: {pin || '000000'} • Choose a unique name from the joined pool
+              Room PIN: {pin || '000000'} • Choose a unique name
             </p>
           </div>
 
@@ -220,7 +217,7 @@ export const PlayerLobby: React.FC = () => {
               disabled={loading}
               style={{ marginTop: '8px' }}
             >
-              {loading ? 'Validating...' : 'Confirm Nickname'} <Check size={18} />
+              {loading ? 'Joining...' : 'Confirm Nickname'} <Check size={18} />
             </button>
           </form>
         </div>
@@ -229,7 +226,7 @@ export const PlayerLobby: React.FC = () => {
   }
 
   // 2. ACTIVE LOBBY WAITING STATE (If name is successfully configured)
-  const allJoinedPlayers = occupiedPool.concat(occupiedPool.includes(nickname) ? [] : [nickname]);
+  const allJoinedPlayers = lobbyPlayers.includes(nickname) ? lobbyPlayers : [nickname, ...lobbyPlayers];
 
   const handleQuit = () => {
     dispatch(setNickname(''));
@@ -263,16 +260,12 @@ export const PlayerLobby: React.FC = () => {
         }}
       >
         <span 
-          onClick={handleSimulateGame}
           style={{
             fontFamily: 'var(--font-title)',
             fontWeight: 900,
             fontSize: '1.5rem',
-            cursor: 'pointer',
-            userSelect: 'none',
             letterSpacing: '0.5px'
           }}
-          title="Simulate game progression"
         >
           ROOM PIN: {pin || '000000'}
         </span>

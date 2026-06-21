@@ -87,6 +87,7 @@ export interface ClientToServerEvents {
   'host:start': (data: { pin: string }) => void;
   'host:next': (data: { pin: string }) => void;
   'host:end': (data: { pin: string }) => void;
+  'host:load-questions': (data: { pin: string; questions: Question[] }, callback: (res: { success: boolean; error?: string }) => void) => void;
   'powerup:use': (data: { pin: string; type: PowerUpType; target?: string }) => void;
   'ping': (data: { timestamp: number }) => void;
 }

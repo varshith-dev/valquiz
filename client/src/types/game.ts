@@ -1,7 +1,7 @@
 export interface Question {
   id: string;
   quiz_id?: string;
-  sort_order: number;
+  sort_order?: number;
   type: 'mcq' | 'truefalse' | 'open' | 'ordering' | 'poll' | 'match';
   text: string;
   media_url?: string;
@@ -10,10 +10,17 @@ export interface Question {
   correct: string[]; // e.g. ["A"] or ["A", "C"]
   explanation?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
-  time_limit: number; // in seconds
+  // Support both server format (timeLimit) and legacy client format (time_limit)
+  timeLimit?: number;
+  time_limit?: number;
   points?: 'standard' | 'double' | 'none';
   hint?: string;
   pairs?: { left: string; right: string }[];
+}
+
+/** Helper to get the time limit from a question regardless of field name */
+export function getTimeLimit(q: Question): number {
+  return q.timeLimit ?? q.time_limit ?? 20;
 }
 
 export interface Quiz {
@@ -49,4 +56,19 @@ export interface GameState {
   timer: number;
   totalQuestions: number;
   isHintRevealed?: boolean;
+}
+
+export interface LeaderboardEntry {
+  nickname: string;
+  score: number;
+  streak: number;
+  rank: number;
+}
+
+export interface AnswerResult {
+  correct: boolean;
+  correctAnswer: string[];
+  pointsEarned: number;
+  streak: number;
+  responseTimeMs: number;
 }

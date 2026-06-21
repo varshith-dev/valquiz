@@ -14,6 +14,7 @@ try {
       getSession: async () => ({ data: { session: null }, error: null }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
       signInWithPassword: async () => ({ data: {}, error: null }),
+      signInWithOAuth: async () => ({ data: {}, error: { message: 'Sandbox mode — Supabase not configured' } }),
       signUp: async () => ({ data: {}, error: null }),
       signOut: async () => ({ error: null }),
     },

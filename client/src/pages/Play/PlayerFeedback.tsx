@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useLocation as useRouteLocation, useNavigate as useRouteNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
@@ -11,47 +11,51 @@ export const PlayerFeedback: React.FC = () => {
   const navigate = useRouteNavigate();
   const dispatch = useDispatch();
 
-  const { score, streak, rank } = useSelector((state: RootState) => state.player);
+  const { nickname, score } = useSelector((state: RootState) => state.player);
 
-  // Check state passed via navigation
-  const feedbackData = routeLocation.state || { chosen: 'A' };
-  const isIncorrectForce = feedbackData.wrong || false;
-  
-  // Decide correct status (mock fallback or real socket score packet)
-  const isCorrect = !isIncorrectForce && feedbackData.chosen === 'A';
-  const addedPoints = isCorrect ? 850 : 0;
+  // Get answer result from navigation state (passed by PlayerQuestion after answer:result)
+  const result = routeLocation.state || {};
+  const isCorrect = result.correct ?? false;
+  const pointsEarned = result.pointsEarned ?? 0;
+  const newStreak = result.streak ?? 0;
 
   useEffect(() => {
     // Reset answered indicator on mount
     dispatch(setHasAnswered(false));
     
-    // Simulate updating points inside Redux store locally
-    if (isCorrect) {
-      const newScore = score + addedPoints;
-      const newStreak = streak + 1;
-      dispatch(updatePlayerStats({
-        score: newScore,
-        streak: newStreak,
-        isCorrect: true,
-        rank: rank || 1
-      }));
-    } else {
-      dispatch(updatePlayerStats({
-        streak: 0,
-        isCorrect: false,
-        rank: rank || 2
-      }));
-    }
+    // Update player stats from server result
+    dispatch(updatePlayerStats({
+      score: score + pointsEarned,
+      streak: newStreak,
+      isCorrect,
+    }));
   }, []);
 
-  // Listen to socket triggers from host (next question or game finished)
-  useSocket('game:next-question', () => {
+  // Listen for next question from server
+  const handleNextQuestion = useCallback(() => {
     navigate('/player/question');
-  });
+  }, [navigate]);
+  useSocket('question:new', handleNextQuestion);
 
-  useSocket('game:finish', () => {
+  // Listen for game finished
+  const handleGameFinished = useCallback((data: any) => {
+    if (data && data.finalLeaderboard && nickname) {
+      const myEntry = data.finalLeaderboard.find((entry: any) => entry.nickname === nickname);
+      if (myEntry) {
+        dispatch(updatePlayerStats({
+          rank: myEntry.rank,
+          score: myEntry.score,
+        }));
+      }
+    }
     navigate('/player/podium');
-  });
+  }, [navigate, dispatch, nickname]);
+  useSocket('game:finished', handleGameFinished);
+
+  const handlePodiumReveal = useCallback(() => {
+    navigate('/player/podium');
+  }, [navigate]);
+  useSocket('podium:reveal', handlePodiumReveal);
 
   return (
     <div 
@@ -85,61 +89,32 @@ export const PlayerFeedback: React.FC = () => {
         </h1>
 
         <div style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '24px' }}>
-          {isCorrect ? `+${addedPoints} Points` : 'Try again next time!'}
+          {isCorrect ? `+${pointsEarned} Points` : 'Try again next time!'}
         </div>
 
         {/* Stats Row */}
         <div style={{ borderTop: '3px solid var(--text-primary)', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Award size={18} /> Total Score</span>
-            <span>{score + (isCorrect ? addedPoints : 0)} pts</span>
+            <span>{score + pointsEarned} pts</span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Flame size={18} /> Active Streak</span>
-            <span style={{ color: (isCorrect ? streak + 1 : 0) >= 3 ? 'var(--color-accent)' : 'inherit' }}>
-              {isCorrect ? streak + 1 : 0}{(isCorrect ? streak + 1 : 0) >= 3 ? ' (ACTIVE)' : ''}
+            <span style={{ color: newStreak >= 3 ? 'var(--color-accent)' : 'inherit' }}>
+              {newStreak}{newStreak >= 3 ? ' (ACTIVE)' : ''}
             </span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><TrendingUp size={18} /> Current Rank</span>
-            <span>#{isCorrect ? '1' : '2'}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><TrendingUp size={18} /> Status</span>
+            <span>{isCorrect ? '✓ On Track' : '✗ Keep Going'}</span>
           </div>
         </div>
       </div>
 
-      {/* Control triggers for standalone visual verification */}
-      <div 
-        className="brutalist-card"
-        style={{
-          width: '100%',
-          maxWidth: '400px',
-          backgroundColor: 'var(--bg-secondary)',
-          color: 'var(--text-primary)',
-          padding: '16px',
-          margin: 0
-        }}
-      >
-        <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: '12px', textAlign: 'center', textTransform: 'uppercase' }}>
-          Offline Screen Controls
-        </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button 
-            onClick={() => navigate('/player/question')}
-            className="brutalist-button brutalist-button-blue" 
-            style={{ flex: 1, fontSize: '0.8rem', padding: '8px' }}
-          >
-            Next Question
-          </button>
-          <button 
-            onClick={() => navigate('/player/podium')}
-            className="brutalist-button brutalist-button-yellow" 
-            style={{ flex: 1, fontSize: '0.8rem', padding: '8px' }}
-          >
-            Go to Podium
-          </button>
-        </div>
+      <div style={{ marginTop: '16px', textAlign: 'center', fontWeight: 600, fontSize: '0.9rem', opacity: 0.8 }}>
+        Waiting for next question from host...
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ import PlayerQuestion from './pages/Play/PlayerQuestion';
 import PlayerFeedback from './pages/Play/PlayerFeedback';
 import PlayerPodium from './pages/Play/PlayerPodium';
 
+import HostLogin from './pages/Host/HostLogin';
 import HostLobby from './pages/Host/HostLobby';
 import HostQuestion from './pages/Host/HostQuestion';
 import HostLeaderboard from './pages/Host/HostLeaderboard';
@@ -60,7 +61,7 @@ export const App: React.FC = () => {
 
             {/* Host Flow */}
             <Route path="/host" element={<HostLobby />} />
-            <Route path="/host/login" element={<Navigate to="/host" replace />} />
+            <Route path="/host/login" element={<HostLogin />} />
             <Route path="/host/question" element={<HostQuestion />} />
             <Route path="/host/leaderboard" element={<HostLeaderboard />} />
             <Route path="/host/podium" element={<HostPodium />} />

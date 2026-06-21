@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
@@ -6,19 +6,39 @@ import { setPin, setQuestions, setStatus, setPlayers } from '../../store/gameSli
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import socketService from '../../services/socket';
 import useSocket from '../../hooks/useSocket';
+import supabase from '../../services/supabase';
 import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
+import type { Question } from '../../types/game';
 
 export const HostLobby: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
-  const { pin, questions } = useSelector((state: RootState) => state.game);
-  const [localPlayers, setLocalPlayers] = useState<string[]>(['ValkeyBot_1', 'SpeedRunner', 'QuizMaster']);
+  const { pin } = useSelector((state: RootState) => state.game);
+  const [localPlayers, setLocalPlayers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const [customQuizzes, setCustomQuizzes] = useState<any[]>([]);
   const [selectedQuizId, setSelectedQuizId] = useState<string>('default');
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
+
+  // Authentication check on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL.includes('placeholder-url');
+        if (!session && !isPlaceholder) {
+          navigate('/host/login');
+        }
+      } catch (err) {
+        console.warn('Supabase session check error, bypassing...', err);
+      }
+    };
+    checkAuth();
+  }, [navigate]);
 
   const handleCopyPin = () => {
     if (pin) {
@@ -31,110 +51,168 @@ export const HostLobby: React.FC = () => {
     }
   };
 
+  // Connect socket and create game on mount
   useEffect(() => {
-    // Generate unique 6-digit game PIN on mount if not already present
-    if (!pin) {
-      const activeGamesRaw = localStorage.getItem('valquiz_active_games');
-      let activeGames: string[] = [];
-      if (activeGamesRaw) {
-        try {
-          activeGames = JSON.parse(activeGamesRaw);
-        } catch (e) {
-          console.error('Failed to parse active games', e);
+    if (!pin && !creating) {
+      setCreating(true);
+
+      // Connect to socket server
+      socketService.connect();
+
+      // Wait for connection then create game
+      const tryCreate = () => {
+        if (socketService.socket?.connected) {
+          socketService.emit('host:create', { nickname: 'HOST' }, (res: any) => {
+            if (res.error) {
+              setError(res.error);
+              setCreating(false);
+              return;
+            }
+            dispatch(setPin(res.pin));
+            sessionStorage.setItem('valquiz_pin', res.pin);
+
+            // Load default questions into the server
+            dispatch(setQuestions(mockQuestions));
+            loadQuestionsToServer(res.pin, mockQuestions);
+            setCreating(false);
+          });
+        } else {
+          // Wait and retry
+          setTimeout(tryCreate, 300);
         }
-      }
+      };
 
-      let generatedPin = '';
-      do {
-        generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-      } while (activeGames.includes(generatedPin));
-
-      dispatch(setPin(generatedPin));
-      
-      // Scrape/Initialize mock questions into state for frontend standalone gameplay
-      dispatch(setQuestions(mockQuestions));
-
-      // Connect socket as host room
-      socketService.connect(generatedPin, 'HOST');
+      // Small delay to let socket connect
+      setTimeout(tryCreate, 500);
     }
-  }, [dispatch, pin]);
+  }, [dispatch, pin, creating]);
 
-  // Synchronize pin and questions to localStorage for player lookup (respective pin to respective game)
-  useEffect(() => {
-    if (pin) {
-      // 1. Add PIN to active games registry if not already there
-      const activeGamesRaw = localStorage.getItem('valquiz_active_games');
-      let activeGames: string[] = [];
-      if (activeGamesRaw) {
-        try {
-          activeGames = JSON.parse(activeGamesRaw);
-        } catch (e) {}
+  const loadQuestionsToServer = (gamePin: string, qs: Question[]) => {
+    socketService.emit('host:load-questions', { pin: gamePin, questions: qs }, (res: any) => {
+      if (!res.success) {
+        console.error('Failed to load questions:', res.error);
+        setError('Failed to load questions to server');
+      } else {
+        console.log('✅ Questions loaded to server');
       }
-      if (!activeGames.includes(pin)) {
-        activeGames.push(pin);
-        localStorage.setItem('valquiz_active_games', JSON.stringify(activeGames));
-      }
+    });
+  };
 
-      // 2. Update/Save the session details with questions
-      localStorage.setItem(
-        `valquiz_game_session_${pin}`,
-        JSON.stringify({
-          pin,
-          questions,
-          updatedAt: Date.now()
-        })
-      );
-    }
-  }, [pin, questions]);
-
-  // Load local quizzes from localStorage
+  // Load local quizzes from localStorage AND server
   useEffect(() => {
+    // 1. Local storage quizzes
     const raw = localStorage.getItem('valquiz_custom_quizzes');
+    let localList: any[] = [];
     if (raw) {
       try {
-        setCustomQuizzes(JSON.parse(raw));
+        localList = JSON.parse(raw);
       } catch (e) {
         console.error('Failed to parse custom quizzes', e);
       }
     }
+
+    // 2. Fetch server quizzes
+    fetch('/api/quiz')
+      .then(res => res.json())
+      .then(data => {
+        const serverQuizzes = data.quizzes || [];
+        // Combine them, avoiding duplicates
+        const combined = [...localList];
+        serverQuizzes.forEach((sq: any) => {
+          if (!combined.some(cq => cq.id === sq.id)) {
+            combined.push(sq);
+          }
+        });
+        setCustomQuizzes(combined);
+      })
+      .catch(err => {
+        console.error('Error fetching server quizzes:', err);
+        setCustomQuizzes(localList); // fallback to local only
+      });
   }, []);
 
   const handleQuizSelect = (quizId: string) => {
     setSelectedQuizId(quizId);
     if (quizId === 'default') {
       dispatch(setQuestions(mockQuestions));
+      if (pin) {
+        loadQuestionsToServer(pin, mockQuestions);
+      }
     } else {
       const found = customQuizzes.find((q) => q.id === quizId);
       if (found) {
-        dispatch(setQuestions(found.questions));
+        if (found.questions) {
+          dispatch(setQuestions(found.questions));
+          if (pin) {
+            loadQuestionsToServer(pin, found.questions);
+          }
+        } else {
+          // Fetch from server details
+          fetch(`/api/quiz/${quizId}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.quiz && data.quiz.questions) {
+                dispatch(setQuestions(data.quiz.questions));
+                if (pin) {
+                  loadQuestionsToServer(pin, data.quiz.questions);
+                }
+              }
+            })
+            .catch(err => {
+              console.error('Error fetching quiz details:', err);
+              setError('Failed to load selected quiz details from server');
+            });
+        }
       }
     }
   };
 
   // Listen to new socket player joins
-  useSocket('player:joined', (player: any) => {
-    const nick = player.nickname;
-    if (nick && !localPlayers.includes(nick)) {
-      const updated = [...localPlayers, nick];
-      setLocalPlayers(updated);
-      
-      // Update Redux state
-      const playerObjects = updated.map((name, i) => ({
-        nickname: name,
-        score: 0,
-        streak: 0,
-        rank: i + 1,
-      }));
-      dispatch(setPlayers(playerObjects));
+  const handlePlayerJoined = useCallback((data: any) => {
+    const nick = data.nickname;
+    if (nick) {
+      setLocalPlayers(prev => {
+        if (prev.includes(nick)) return prev;
+        const updated = [...prev, nick];
+        // Update Redux state
+        const playerObjects = updated.map((name, i) => ({
+          nickname: name,
+          score: 0,
+          streak: 0,
+          rank: i + 1,
+        }));
+        dispatch(setPlayers(playerObjects));
+        return updated;
+      });
     }
-  });
+  }, [dispatch]);
+  useSocket('player:joined', handlePlayerJoined);
+
+  // Listen for player leaving
+  const handlePlayerLeft = useCallback((data: any) => {
+    const nick = data.nickname;
+    if (nick) {
+      setLocalPlayers(prev => {
+        const updated = prev.filter(p => p !== nick);
+        const playerObjects = updated.map((name, i) => ({
+          nickname: name,
+          score: 0,
+          streak: 0,
+          rank: i + 1,
+        }));
+        dispatch(setPlayers(playerObjects));
+        return updated;
+      });
+    }
+  }, [dispatch]);
+  useSocket('player:left', handlePlayerLeft);
 
   const handleStartGame = () => {
-    if (localPlayers.length === 0) return;
+    if (localPlayers.length === 0 || !pin) return;
     setLoading(true);
-    
-    // Notify all connected sockets that game is starting
-    socketService.emit('game:start-session', { pin });
+
+    // Tell server to start the game
+    socketService.emit('host:start', { pin });
 
     // Transition host state and view
     setTimeout(() => {
@@ -156,7 +234,7 @@ export const HostLobby: React.FC = () => {
           </div>
           <button
             onClick={handleStartGame}
-            disabled={localPlayers.length === 0 || loading}
+            disabled={localPlayers.length === 0 || loading || !pin}
             className="minimalist-button minimalist-button-primary"
             style={{
               padding: '12px 28px',
@@ -168,6 +246,12 @@ export const HostLobby: React.FC = () => {
             <Play size={18} fill="currentColor" /> {loading ? 'Launching...' : 'Start Game'}
           </button>
         </header>
+
+        {error && (
+          <div style={{ padding: '12px', backgroundColor: 'var(--color-red)', color: 'white', fontWeight: 700, borderRadius: '6px', marginBottom: '16px' }}>
+            {error}
+          </div>
+        )}
 
         {/* Info grids */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '32px', flexGrow: 1 }}>
@@ -196,7 +280,7 @@ export const HostLobby: React.FC = () => {
               }}
             >
               <span style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: copied ? '#22c55e' : 'var(--text-secondary)', transition: 'color 0.2s ease' }}>
-                {copied ? 'Copied to Clipboard!' : 'Game PIN Code'}
+                {copied ? 'Copied to Clipboard!' : creating ? 'Creating Game...' : 'Game PIN Code'}
               </span>
               <div
                 style={{
@@ -211,7 +295,7 @@ export const HostLobby: React.FC = () => {
                   gap: '12px',
                 }}
               >
-                {pin}
+                {pin || '......'}
                 <div style={{ display: 'inline-flex', alignItems: 'center' }}>
                   {copied ? (
                     <Check size={20} style={{ color: '#22c55e' }} className="animate-pop-in" />
@@ -221,7 +305,7 @@ export const HostLobby: React.FC = () => {
                 </div>
               </div>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Scan QR Code or visit <strong>valquiz.it</strong> to join
+                Share this PIN with players to join
               </p>
             </div>
 
@@ -348,7 +432,7 @@ export const HostLobby: React.FC = () => {
                 }}
               >
                 <AlertCircle size={32} />
-                <p style={{ fontWeight: 600 }}>No players joined yet. Open player clients to join!</p>
+                <p style={{ fontWeight: 600 }}>No players joined yet. Share the PIN code above!</p>
               </div>
             ) : (
               <div
@@ -390,7 +474,7 @@ export const HostLobby: React.FC = () => {
   );
 };
 
-const mockQuestions = [
+const mockQuestions: Question[] = [
   {
     id: 'q1',
     sort_order: 1,
@@ -403,7 +487,7 @@ const mockQuestions = [
       { id: 'D', text: 'Valkey Pub/Sub Channels' },
     ],
     correct: ['A'],
-    time_limit: 15,
+    timeLimit: 15,
   },
   {
     id: 'q2',
@@ -417,7 +501,7 @@ const mockQuestions = [
       { id: 'D', text: 'Valkey is written in Python' },
     ],
     correct: ['B'],
-    time_limit: 15,
+    timeLimit: 15,
   },
 ];
 

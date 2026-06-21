@@ -28,6 +28,40 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
       }
     });
 
+    // ─── Host: Load Questions ──────────────────────────
+    socket.on('host:load-questions', async (data, callback) => {
+      try {
+        const { pin, questions } = data;
+        const session = socketMap.get(socket.id);
+        if (session?.role !== 'host') {
+          callback({ success: false, error: 'Only host can load questions' });
+          return;
+        }
+
+        if (!questions || !Array.isArray(questions) || questions.length === 0) {
+          callback({ success: false, error: 'No questions provided' });
+          return;
+        }
+
+        // Normalize question timeLimit field
+        const normalized = questions.map((q: any, idx: number) => ({
+          id: q.id || `q${idx + 1}`,
+          text: q.text,
+          type: q.type || 'mcq',
+          options: q.options || [],
+          correct: Array.isArray(q.correct) ? q.correct : [q.correct],
+          timeLimit: q.timeLimit || q.time_limit || 20,
+          explanation: q.explanation || '',
+        }));
+
+        await GameManager.setQuestions(pin, normalized);
+        callback({ success: true });
+        console.log(`📋 Loaded ${normalized.length} questions into game ${pin}`);
+      } catch (err: any) {
+        callback({ success: false, error: err.message });
+      }
+    });
+
     // ─── Player: Join Game ──────────────────────────────
     socket.on('player:join', async (data, callback) => {
       try {

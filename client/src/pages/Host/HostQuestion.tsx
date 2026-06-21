@@ -1,91 +1,125 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setCurrentQuestionIndex, setHintRevealed } from '../../store/gameSlice';
+import { setCurrentQuestionIndex, setHintRevealed, setPlayers } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';
-import socketService from '../../services/socket';
+import useSocket from '../../hooks/useSocket';
 import { Check, BarChart2, Pause, Play, Sparkles } from 'lucide-react';
+import type { LeaderboardEntry } from '../../types/game';
 
 export const HostQuestion: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
-  const { questions, currentQuestionIndex, pin, isHintRevealed } = useSelector((state: RootState) => state.game);
+  const { questions, currentQuestionIndex, isHintRevealed } = useSelector((state: RootState) => state.game);
+  
+  // Server-pushed question data (with correct answers)
+  const [serverQuestion, setServerQuestion] = useState<any>(null);
+  const [serverQIndex, setServerQIndex] = useState(-1);
   
   // Set default question index to 0 if not set
   const currentIdx = currentQuestionIndex < 0 ? 0 : currentQuestionIndex;
-  const question = questions[currentIdx] || {
-    text: 'What data structure is typically used for real-time leaderboards in Valkey?',
-    options: [
-      { id: 'A', text: 'Valkey Sorted Sets (ZSET)' },
-      { id: 'B', text: 'Valkey Hash' },
-      { id: 'C', text: 'Valkey HyperLogLog' },
-      { id: 'D', text: 'Valkey Pub/Sub Channels' },
-    ],
-    correct: ['A'],
+  
+  // Use server question if available, fall back to Redux store
+  const question = serverQuestion || questions[currentIdx] || {
+    text: 'Waiting for question...',
+    options: [],
+    correct: [],
+    timeLimit: 20,
     time_limit: 20,
     hint: '',
   };
 
+  const timeLimit = question.timeLimit || question.time_limit || 20;
+
   const [answeredCount, setAnsweredCount] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [answerDistribution, setAnswerDistribution] = useState<Record<string, number>>({});
 
   // Hook timer countdown (supports pause/resume)
-  const secondsLeft = useTimer(question.time_limit, () => {
+  const secondsLeft = useTimer(timeLimit, () => {
     handleTimerComplete();
   }, isPaused);
 
-  useEffect(() => {
-    dispatch(setCurrentQuestionIndex(currentIdx));
-    // Emit next question prompt via socket, including full question metadata
-    socketService.emit('game:broadcast-question', {
-      pin,
-      questionIndex: currentIdx,
-      question: question,
+  // Listen for question:host from server (with correct answers)
+  const handleQuestionHost = useCallback((data: any) => {
+    setServerQuestion({
+      text: data.text,
+      options: data.options,
+      correct: data.correct || [],
+      timeLimit: data.timeLimit,
+      type: 'mcq',
     });
-  }, [currentIdx, dispatch, pin, question]);
+    setServerQIndex(data.qIndex);
+    dispatch(setCurrentQuestionIndex(data.qIndex));
+    setShowResults(false);
+    setAnsweredCount(0);
+    setAnswerDistribution({});
+    setIsPaused(false);
+  }, [dispatch]);
+  useSocket('question:host', handleQuestionHost);
+
+  // Listen for leaderboard updates (count answers)
+  const handleLeaderboardUpdate = useCallback((data: any) => {
+    if (data.leaderboard) {
+      setAnsweredCount(prev => prev + 1);
+      
+      // Update Redux players
+      const playerObjects = data.leaderboard.map((entry: LeaderboardEntry) => ({
+        nickname: entry.nickname,
+        score: entry.score,
+        streak: entry.streak,
+        rank: entry.rank,
+      }));
+      dispatch(setPlayers(playerObjects));
+    }
+  }, [dispatch]);
+  useSocket('leaderboard:update', handleLeaderboardUpdate);
+
+  // Listen for projector data (answer distribution)
+  const handleProjectorData = useCallback((data: any) => {
+    if (data.answerDistribution) {
+      setAnswerDistribution(data.answerDistribution);
+    }
+  }, []);
+  useSocket('projector:data', handleProjectorData);
+
+  // Listen for game finished
+  const handleGameFinished = useCallback(() => {
+    navigate('/host/podium');
+  }, [navigate]);
+  useSocket('game:finished', handleGameFinished);
+
+  // Broadcast question on mount if we have local questions but server hasn't pushed yet
+  useEffect(() => {
+    if (!serverQuestion && questions[currentIdx]) {
+      dispatch(setCurrentQuestionIndex(currentIdx));
+    }
+  }, [currentIdx, dispatch, questions, serverQuestion]);
 
   const handleTimerComplete = () => {
     setShowResults(true);
-    socketService.emit('game:close-question', { pin });
   };
 
   const handleManualSkip = () => {
     setShowResults(true);
-    socketService.emit('game:close-question', { pin });
   };
 
   const handleRevealHint = () => {
     dispatch(setHintRevealed(true));
-    socketService.emit('game:reveal-hint', { pin });
   };
 
   const handleNext = () => {
     navigate('/host/leaderboard');
   };
 
-  // Simulate players answering periodically
-  useEffect(() => {
-    if (showResults || secondsLeft === 0 || isPaused) return;
-    const interval = setInterval(() => {
-      setAnsweredCount((prev) => {
-        if (prev >= 3) {
-          clearInterval(interval);
-          return 3;
-        }
-        return prev + 1;
-      });
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [secondsLeft, showResults, isPaused]);
-
   const getOptionColor = (optId: string) => {
     if (showResults) {
-      return question.correct.includes(optId) ? 'var(--color-green)' : 'rgba(39, 35, 32, 0.1)';
+      return question.correct?.includes(optId) ? 'var(--color-green)' : 'rgba(39, 35, 32, 0.1)';
     }
     switch (optId) {
       case 'A': return 'var(--color-red)';
@@ -96,8 +130,6 @@ export const HostQuestion: React.FC = () => {
     }
   };
 
-  const mockDistribution = { A: 2, B: 1, C: 0, D: 0 };
-
   return (
     <div className="minimalist-container">
       <HostNavigationRail />
@@ -106,7 +138,7 @@ export const HostQuestion: React.FC = () => {
         <header className="minimalist-header">
           <div>
             <span style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-              Question {currentIdx + 1} of {questions.length || 2}
+              Question {(serverQIndex >= 0 ? serverQIndex : currentIdx) + 1} of {questions.length || '?'}
             </span>
             <h1 style={{ fontSize: '2rem', marginTop: '4px' }}>{question.text}</h1>
           </div>
@@ -162,7 +194,7 @@ export const HostQuestion: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '32px', flexGrow: 1, alignItems: 'center' }}>
           {/* Timer and score stats column */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px' }}>
-            <CountdownTimer seconds={secondsLeft} totalDuration={question.time_limit} />
+            <CountdownTimer seconds={secondsLeft} totalDuration={timeLimit} />
             
             <div 
               style={{ 
@@ -221,8 +253,9 @@ export const HostQuestion: React.FC = () => {
                 {/* Horizontal simple chart bars */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {(['A', 'B', 'C', 'D'] as const).map((opt) => {
-                    const count = mockDistribution[opt];
-                    const pct = (count / 3) * 100;
+                    const count = answerDistribution[opt] || 0;
+                    const total = Object.values(answerDistribution).reduce((a: number, b: number) => a + b, 0) || 1;
+                    const pct = (count / total) * 100;
                     return (
                       <div key={opt} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <span style={{ fontWeight: 800, width: '20px' }}>{opt}</span>
@@ -282,9 +315,9 @@ export const HostQuestion: React.FC = () => {
                     gridGap: '20px' 
                   }}
                 >
-                  {question.options.map((opt) => {
+                  {(question.options || []).map((opt: any) => {
                     const optId = opt.id;
-                    const isCorrectAns = question.correct.includes(optId);
+                    const isCorrectAns = question.correct?.includes(optId);
                     return (
                       <div
                         key={optId}

@@ -1,22 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setHasAnswered } from '../../store/playerSlice';
+import { setHasAnswered, updatePlayerStats } from '../../store/playerSlice';
+import { setCurrentQuestionIndex } from '../../store/gameSlice';
 import socketService from '../../services/socket';
 import AnswerButton from '../../components/Question/AnswerButton';
 import useSocket from '../../hooks/useSocket';
 import { HelpCircle, Sparkles, CheckSquare } from 'lucide-react';
+import type { AnswerResult } from '../../types/game';
 
 export const PlayerQuestion: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   
-  const { pin, questions, currentQuestionIndex } = useSelector((state: RootState) => state.game);
+  const { pin } = useSelector((state: RootState) => state.game);
   const { nickname, hasAnswered } = useSelector((state: RootState) => state.player);
   
-  const [startTime] = useState(Date.now());
-  const [currentQuestion, setCurrentQuestion] = useState<any>(null);
+  const [startTime, setStartTime] = useState(Date.now());
+  
+  // Current question from server
+  const [question, setQuestion] = useState<any>(null);
+  const [qIndex, setQIndex] = useState(-1);
   
   // Answering states
   const [selectedOption, setSelectedOption] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
@@ -26,45 +31,80 @@ export const PlayerQuestion: React.FC = () => {
   const [showHintPopup, setShowHintPopup] = useState(false);
   const [isHintUnlocked, setIsHintUnlocked] = useState(false);
 
-  const reduxHintRevealed = useSelector((state: RootState) => state.game.isHintRevealed);
+  // Listen for new questions from server
+  const handleNewQuestion = useCallback((data: any) => {
+    setQuestion({
+      text: data.text,
+      options: data.options,
+      timeLimit: data.timeLimit,
+      type: 'mcq',
+      correct: [], // player doesn't know correct answer
+    });
+    setQIndex(data.qIndex);
+    dispatch(setCurrentQuestionIndex(data.qIndex));
+    dispatch(setHasAnswered(false));
+    setSelectedOption(null);
+    setSelectedMultiOptions([]);
+    setMatches({});
+    setStartTime(Date.now());
+    setIsHintUnlocked(false);
+  }, [dispatch]);
+  useSocket('question:new', handleNewQuestion);
 
-  // Sync active question from host socket broadcast
-  useSocket('game:broadcast-question', (data: any) => {
-    if (data && data.question) {
-      setCurrentQuestion(data.question);
-      setIsHintUnlocked(false); // Reset client hint lock on new question
+  // Listen for answer result
+  const handleAnswerResult = useCallback((data: AnswerResult) => {
+    dispatch(updatePlayerStats({
+      score: undefined, // will be updated via leaderboard
+      streak: data.streak,
+      isCorrect: data.correct,
+    }));
+    // Navigate to feedback with result data
+    navigate('/player/feedback', {
+      state: {
+        correct: data.correct,
+        correctAnswer: data.correctAnswer,
+        pointsEarned: data.pointsEarned,
+        streak: data.streak,
+        responseTimeMs: data.responseTimeMs,
+      }
+    });
+  }, [dispatch, navigate]);
+  useSocket('answer:result', handleAnswerResult);
+
+  // Listen for game finished
+  const handleGameFinished = useCallback((data: any) => {
+    if (data && data.finalLeaderboard && nickname) {
+      const myEntry = data.finalLeaderboard.find((entry: any) => entry.nickname === nickname);
+      if (myEntry) {
+        dispatch(updatePlayerStats({
+          rank: myEntry.rank,
+          score: myEntry.score,
+        }));
+      }
     }
-  });
+    navigate('/player/podium');
+  }, [navigate, dispatch, nickname]);
+  useSocket('game:finished', handleGameFinished);
 
-  // Listen for real-time hint unlocks from host
-  useSocket('game:reveal-hint', () => {
-    setIsHintUnlocked(true);
-  });
+  // Listen for podium reveal
+  const handlePodiumReveal = useCallback(() => {
+    navigate('/player/podium');
+  }, [navigate]);
+  useSocket('podium:reveal', handlePodiumReveal);
 
-  useSocket('question:over', () => {
-    navigate('/player/feedback');
-  });
+  // If no question received yet, show waiting
+  if (!question) {
+    return (
+      <div className="brutalist-container" style={{ padding: '24px' }}>
+        <div className="brutalist-card" style={{ textAlign: 'center', padding: '40px' }}>
+          <h2 style={{ fontSize: '1.5rem', textTransform: 'uppercase', marginBottom: '8px' }}>Waiting for Question...</h2>
+          <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>The host will send the next question shortly.</p>
+        </div>
+      </div>
+    );
+  }
 
-  // Resolve active question structure (Socket real-time vs. local Redux fallback)
-  const currentIdx = currentQuestionIndex < 0 ? 0 : currentQuestionIndex;
-  const reduxQuestion = questions[currentIdx] || {
-    type: 'mcq',
-    text: 'Waiting for question details...',
-    options: [
-      { id: 'A', text: 'Option A' },
-      { id: 'B', text: 'Option B' },
-      { id: 'C', text: 'Option C' },
-      { id: 'D', text: 'Option D' }
-    ],
-    correct: ['A'],
-    time_limit: 20
-  };
-
-  const question = currentQuestion || reduxQuestion;
   const isMultiChoice = question.correct && question.correct.length > 1;
-
-  // Track if host has unlocked hints for this question
-  const hintUnlocked = isHintUnlocked || !!reduxHintRevealed;
 
   // Single choice submit
   const handleSingleAnswerSubmit = (option: 'A' | 'B' | 'C' | 'D') => {
@@ -73,18 +113,14 @@ export const PlayerQuestion: React.FC = () => {
     setSelectedOption(option);
     dispatch(setHasAnswered(true));
 
-    const responseTime = (Date.now() - startTime) / 1000;
+    const responseTimeMs = Date.now() - startTime;
 
-    socketService.emit('game:submit-answer', {
+    socketService.emit('player:answer', {
       pin,
-      nickname,
-      answer: option,
-      responseTime,
+      qIndex,
+      answerIds: [option],
+      responseTimeMs,
     });
-
-    setTimeout(() => {
-      navigate('/player/feedback', { state: { chosen: option } });
-    }, 600);
   };
 
   // Multi choice toggling
@@ -102,18 +138,14 @@ export const PlayerQuestion: React.FC = () => {
     if (selectedMultiOptions.length === 0 || hasAnswered) return;
 
     dispatch(setHasAnswered(true));
-    const responseTime = (Date.now() - startTime) / 1000;
+    const responseTimeMs = Date.now() - startTime;
 
-    socketService.emit('game:submit-answer', {
+    socketService.emit('player:answer', {
       pin,
-      nickname,
-      answer: selectedMultiOptions,
-      responseTime,
+      qIndex,
+      answerIds: selectedMultiOptions,
+      responseTimeMs,
     });
-
-    setTimeout(() => {
-      navigate('/player/feedback', { state: { chosen: selectedMultiOptions.join(', ') } });
-    }, 600);
   };
 
   // Match choice selection
@@ -133,18 +165,14 @@ export const PlayerQuestion: React.FC = () => {
     if (filledCount < totalRequired || hasAnswered) return;
 
     dispatch(setHasAnswered(true));
-    const responseTime = (Date.now() - startTime) / 1000;
+    const responseTimeMs = Date.now() - startTime;
 
-    socketService.emit('game:submit-answer', {
+    socketService.emit('player:answer', {
       pin,
-      nickname,
-      answer: matches,
-      responseTime,
+      qIndex,
+      answerIds: Object.values(matches),
+      responseTimeMs,
     });
-
-    setTimeout(() => {
-      navigate('/player/feedback', { state: { chosen: 'Matched Pairs' } });
-    }, 600);
   };
 
   // Resolve matching pool right column values for select dropdowns
@@ -180,12 +208,17 @@ export const PlayerQuestion: React.FC = () => {
       >
         <span>{nickname || 'Guest'}</span>
         <span style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)', padding: '2px 8px' }}>
-          PIN {pin || '0000'}
+          Q{qIndex + 1} • PIN {pin || '0000'}
         </span>
       </div>
 
+      {/* Question Text */}
+      <div style={{ textAlign: 'center', padding: '16px 0', fontWeight: 700, fontSize: '1.1rem' }}>
+        {question.text}
+      </div>
+
       {/* Main Answering Area */}
-      <div style={{ width: '100%', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', margin: '20px 0' }}>
+      <div style={{ width: '100%', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', margin: '10px 0' }}>
         {hasAnswered ? (
           /* Locked State */
           <div 
@@ -201,7 +234,7 @@ export const PlayerQuestion: React.FC = () => {
             }}
           >
             <h2 style={{ fontSize: '2rem', textTransform: 'uppercase', marginBottom: '8px' }}>Answer Locked!</h2>
-            <p style={{ fontWeight: 600 }}>Waiting for other players to submit...</p>
+            <p style={{ fontWeight: 600 }}>Waiting for results...</p>
           </div>
         ) : question.type === 'match' ? (
           /* Match Answering Layout */
@@ -310,7 +343,7 @@ export const PlayerQuestion: React.FC = () => {
                     }}
                   >
                     {isChecked ? <CheckSquare size={18} /> : <div style={{ width: 18, height: 18, border: '2px solid var(--text-primary)', borderRadius: '2px', backgroundColor: 'white' }} />}
-                    <span>Option {optId}</span>
+                    <span>{optId}. {opt.text}</span>
                   </button>
                 );
               })}
@@ -343,7 +376,7 @@ export const PlayerQuestion: React.FC = () => {
                 <AnswerButton 
                   key={optId}
                   optionId={optId} 
-                  text={`Option ${optId}`} 
+                  text={`${optId}. ${opt.text}`} 
                   onClick={() => handleSingleAnswerSubmit(optId)} 
                   disabled={hasAnswered}
                   isSelected={selectedOption === optId}
@@ -354,57 +387,37 @@ export const PlayerQuestion: React.FC = () => {
         )}
       </div>
 
-      {/* Floating Action Bar: Hint & Dev Simulator Bypasses */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
-        {/* Optional Hint Button (Locked/Unlocked) */}
-        {question.hint && !hasAnswered && (
-          <button
-            onClick={() => hintUnlocked && setShowHintPopup(true)}
-            disabled={!hintUnlocked}
-            className="brutalist-button"
-            style={{
-              width: '100%',
-              padding: '12px',
-              fontSize: '0.9rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              backgroundColor: hintUnlocked ? 'var(--color-yellow)' : 'var(--bg-secondary)',
-              color: hintUnlocked ? '#272320' : 'var(--text-secondary)',
-              cursor: hintUnlocked ? 'pointer' : 'not-allowed',
-              opacity: hintUnlocked ? 1 : 0.7,
-              borderStyle: hintUnlocked ? 'solid' : 'dashed',
-              borderWidth: '2px',
-              borderColor: 'var(--text-primary)',
-              boxShadow: hintUnlocked ? 'var(--brutalist-shadow)' : 'none',
-              transition: 'all 0.25s ease'
-            }}
-          >
-            <Sparkles size={16} /> 
-            {hintUnlocked ? 'Need a Hint? (Unlocked)' : 'Hint Locked by Host'}
-          </button>
-        )}
+      {/* Hint Button */}
+      {question.hint && !hasAnswered && (
+        <button
+          onClick={() => isHintUnlocked && setShowHintPopup(true)}
+          disabled={!isHintUnlocked}
+          className="brutalist-button"
+          style={{
+            width: '100%',
+            padding: '12px',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            backgroundColor: isHintUnlocked ? 'var(--color-yellow)' : 'var(--bg-secondary)',
+            color: isHintUnlocked ? '#272320' : 'var(--text-secondary)',
+            cursor: isHintUnlocked ? 'pointer' : 'not-allowed',
+            opacity: isHintUnlocked ? 1 : 0.7,
+            borderStyle: isHintUnlocked ? 'solid' : 'dashed',
+            borderWidth: '2px',
+            borderColor: 'var(--text-primary)',
+            boxShadow: isHintUnlocked ? 'var(--brutalist-shadow)' : 'none',
+            transition: 'all 0.25s ease'
+          }}
+        >
+          <Sparkles size={16} /> 
+          {isHintUnlocked ? 'Need a Hint? (Unlocked)' : 'Hint Locked by Host'}
+        </button>
+      )}
 
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
-            onClick={() => navigate('/player/feedback', { state: { chosen: 'A' } })}
-            className="brutalist-button" 
-            style={{ flex: 1, fontSize: '0.8rem', padding: '10px', backgroundColor: 'var(--bg-secondary)' }}
-          >
-            Bypass Win
-          </button>
-          <button 
-            onClick={() => navigate('/player/feedback', { state: { chosen: 'B', wrong: true } })}
-            className="brutalist-button" 
-            style={{ flex: 1, fontSize: '0.8rem', padding: '10px', backgroundColor: 'var(--bg-secondary)' }}
-          >
-            Bypass Lose
-          </button>
-        </div>
-      </div>
-
-      {/* Optional Hint Popup Overlay Card */}
+      {/* Hint Popup */}
       {showHintPopup && (
         <div 
           style={{

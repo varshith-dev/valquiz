@@ -4,6 +4,8 @@ import { useDispatch } from 'react-redux';
 import { ArrowRight, HelpCircle } from 'lucide-react';
 import { setPin } from '../../store/gameSlice';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+
 export const JoinGame: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -12,7 +14,7 @@ export const JoinGame: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handlePinSubmit = (e: React.FormEvent) => {
+  const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = gamePin.trim();
     if (!trimmed || trimmed.length !== 6) {
@@ -20,33 +22,38 @@ export const JoinGame: React.FC = () => {
       return;
     }
 
-    // Retrieve active game PINs list from localStorage
-    const activeGamesRaw = localStorage.getItem('valquiz_active_games');
-    let activeGames: string[] = [];
-    if (activeGamesRaw) {
-      try {
-        activeGames = JSON.parse(activeGamesRaw);
-      } catch (e) {
-        console.error('Failed to parse active games list', e);
-      }
-    }
-
-    // Verify if entered PIN represents a live active game session
-    if (!activeGames.includes(trimmed)) {
-      setError('Game PIN not found. Enter the respective 6-digit PIN.');
-      return;
-    }
-
     setError('');
     setLoading(true);
 
-    // Save PIN and navigate directly to lobby for name selection
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      // Validate against the real server
+      const res = await fetch(`${BACKEND_URL}/api/game/${trimmed}`);
+      
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Game not found. Check the PIN and try again.');
+        setLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      
+      if (data.game?.status !== 'lobby') {
+        setError('This game has already started or ended.');
+        setLoading(false);
+        return;
+      }
+
+      // Valid game — save PIN and navigate to lobby for nickname selection
       sessionStorage.setItem('valquiz_pin', trimmed);
       dispatch(setPin(trimmed));
+      setLoading(false);
       navigate('/player/lobby');
-    }, 800);
+    } catch (err) {
+      console.error('PIN validation error:', err);
+      setError('Could not reach game server. Is the server running?');
+      setLoading(false);
+    }
   };
 
   return (

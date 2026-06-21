@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
-import { ArrowLeft, Sparkles, Check, Edit3 } from 'lucide-react';
+import { ArrowLeft, Sparkles, Check, Edit3, AlertCircle } from 'lucide-react';
 
 export const AIGenerate: React.FC = () => {
   const navigate = useNavigate();
@@ -9,37 +9,97 @@ export const AIGenerate: React.FC = () => {
   const [topic, setTopic] = useState('');
   const [loading, setLoading] = useState(false);
   const [previewQuiz, setPreviewQuiz] = useState<any | null>(null);
+  const [error, setError] = useState('');
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topic) return;
 
     setLoading(true);
+    setError('');
 
-    // Simulate AI Microservice API generation latency
-    setTimeout(() => {
-      setLoading(false);
-      setPreviewQuiz({
-        title: `AI Quiz: ${topic}`,
-        questions: [
-          {
-            text: `Which aspect of "${topic}" is most critical to understanding its core principles?`,
-            options: ['Basic Foundation', 'Practical Application', 'Advanced Scaling', 'Historical Context'],
-            correct: 'A',
-          },
-          {
-            text: `What is the primary benefit of optimizing "${topic}"?`,
-            options: ['Higher Cost efficiency', 'Reduced Execution Time', 'Improved Data Integrity', 'All of the above'],
-            correct: 'D',
-          }
-        ]
+    try {
+      const response = await fetch('/api/quiz/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic,
+          numQuestions: 10,
+          difficulty: 'medium',
+        }),
       });
-    }, 1500);
+
+      if (!response.ok) {
+        throw new Error(`Generation failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setPreviewQuiz({
+          title: `AI Quiz: ${data.topic || topic}`,
+          questions: data.questions,
+        });
+      } else {
+        throw new Error(data.error || 'Failed to generate quiz');
+      }
+    } catch (err: any) {
+      console.error('Error generating quiz:', err);
+      setError(err.message || 'An error occurred during AI quiz generation.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSaveAndLaunch = () => {
-    alert("AI Generated Quiz saved to Supabase database successfully!");
-    navigate('/host');
+  const handleSaveAndLaunch = async () => {
+    if (!previewQuiz) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/quiz', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: previewQuiz.title,
+          questions: previewQuiz.questions,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save quiz: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        // Save to localStorage for backward compatibility with components reading from it
+        const raw = localStorage.getItem('valquiz_custom_quizzes');
+        let localList = [];
+        if (raw) {
+          try {
+            localList = JSON.parse(raw);
+          } catch (e) {
+            console.error('Failed to parse existing local quizzes', e);
+          }
+        }
+        // Append the new saved quiz
+        localList.push(data.quiz);
+        localStorage.setItem('valquiz_custom_quizzes', JSON.stringify(localList));
+
+        navigate('/host');
+      } else {
+        throw new Error(data.error || 'Failed to save quiz to dashboard');
+      }
+    } catch (err: any) {
+      console.error('Error saving quiz:', err);
+      alert(`Error saving quiz: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -60,6 +120,25 @@ export const AIGenerate: React.FC = () => {
         </header>
 
         <div style={{ maxWidth: '800px' }}>
+          {error && (
+            <div 
+              style={{ 
+                padding: '12px 16px', 
+                backgroundColor: 'var(--color-red)', 
+                color: 'white', 
+                fontWeight: 700, 
+                borderRadius: '6px', 
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <AlertCircle size={18} />
+              <span>{error}</span>
+            </div>
+          )}
+
           {!previewQuiz ? (
             <form onSubmit={handleGenerate} className="minimalist-card" style={{ border: '2px solid var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div>
@@ -108,12 +187,13 @@ export const AIGenerate: React.FC = () => {
                     <div key={idx} style={{ padding: '16px', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '6px', backgroundColor: 'var(--bg-secondary)' }}>
                       <div style={{ fontWeight: 800, marginBottom: '10px' }}>Q{idx + 1}: {q.text}</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        {q.options.map((opt: string, oIdx: number) => {
-                          const optLetter = String.fromCharCode(65 + oIdx);
-                          const isCorrect = q.correct === optLetter;
+                        {q.options.map((opt: any, oIdx: number) => {
+                          const optId = opt.id || String.fromCharCode(65 + oIdx);
+                          const optText = opt.text || opt;
+                          const isCorrect = Array.isArray(q.correct) ? q.correct.includes(optId) : q.correct === optId;
                           return (
                             <div key={oIdx} style={{ fontSize: '0.9rem', padding: '6px 12px', backgroundColor: isCorrect ? 'rgba(34, 197, 94, 0.15)' : 'transparent', border: isCorrect ? '1.5px solid var(--color-green)' : '1px dashed rgba(0,0,0,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: isCorrect ? 700 : 500 }}>
-                              <span>{optLetter}. {opt}</span>
+                              <span>{optId}. {optText}</span>
                               {isCorrect && <Check size={14} color="var(--color-green)" />}
                             </div>
                           );
@@ -129,6 +209,7 @@ export const AIGenerate: React.FC = () => {
                   onClick={() => setPreviewQuiz(null)}
                   className="minimalist-button" 
                   style={{ flex: 1 }}
+                  disabled={loading}
                 >
                   <Edit3 size={16} /> Edit Prompt
                 </button>
@@ -136,8 +217,9 @@ export const AIGenerate: React.FC = () => {
                   onClick={handleSaveAndLaunch}
                   className="minimalist-button minimalist-button-primary" 
                   style={{ flex: 2, padding: '14px' }}
+                  disabled={loading}
                 >
-                  <Sparkles size={16} /> Save Quiz to Dashboard
+                  <Sparkles size={16} /> {loading ? 'Saving...' : 'Save Quiz to Dashboard'}
                 </button>
               </div>
             </div>
