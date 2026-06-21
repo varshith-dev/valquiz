@@ -170,6 +170,39 @@ export const HostLogin: React.FC = () => {
           </svg>
           {loading ? 'Authorizing...' : 'Sign in with GitHub'}
         </button>
+
+        <button
+          onClick={() => {
+            setError('Bypassing Auth (Sandbox Mode)...');
+            setLoading(true);
+            setTimeout(() => {
+              setLoading(false);
+              navigate('/host');
+            }, 1000);
+          }}
+          disabled={loading}
+          className="minimalist-button"
+          style={{
+            width: '100%',
+            padding: '14px 20px',
+            fontFamily: 'var(--font-title)',
+            fontSize: '1rem',
+            fontWeight: 800,
+            textTransform: 'uppercase',
+            borderRadius: '6px',
+            border: '3px solid var(--text-primary)',
+            backgroundColor: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            marginTop: '12px'
+          }}
+        >
+          Bypass Auth (Sandbox Mode)
+        </button>
       </div>
 
       <button
