@@ -1,5 +1,8 @@
+import fs from 'fs';
+import path from 'path';
+
 /**
- * In-memory Valkey mock — iovalkey-compatible interface.
+ * In-memory Valkey mock with file persistence — iovalkey-compatible interface.
  * Used when Valkey/Redis is not available via Docker or WSL.
  */
 export class ValkeyMock {
@@ -8,11 +11,66 @@ export class ValkeyMock {
   private sortedSets = new Map<string, Map<string, number>>();
   private ttlMap = new Map<string, number>();
   private counters = new Map<string, number>();
+  private dbPath = path.join(process.cwd(), 'valquiz_mock_db.json');
+
+  constructor() {
+    this.loadState();
+  }
+
+  private loadState() {
+    try {
+      if (fs.existsSync(this.dbPath)) {
+        const raw = fs.readFileSync(this.dbPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        
+        this.store = new Map(Object.entries(parsed.store || {}));
+        
+        this.hashes = new Map();
+        if (parsed.hashes) {
+          for (const [key, fields] of Object.entries(parsed.hashes)) {
+            this.hashes.set(key, new Map(Object.entries(fields as any)));
+          }
+        }
+
+        this.sortedSets = new Map();
+        if (parsed.sortedSets) {
+          for (const [key, members] of Object.entries(parsed.sortedSets)) {
+            this.sortedSets.set(key, new Map(Object.entries(members as any)));
+          }
+        }
+
+        this.ttlMap = new Map(Object.entries(parsed.ttlMap || {}));
+        this.counters = new Map(Object.entries(parsed.counters || {}));
+        console.log('📦 Loaded mock Valkey state from valquiz_mock_db.json');
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to load mock Valkey state:', e);
+    }
+  }
+
+  private saveState() {
+    try {
+      const state = {
+        store: Object.fromEntries(this.store),
+        hashes: Object.fromEntries(
+          [...this.hashes.entries()].map(([k, map]) => [k, Object.fromEntries(map)])
+        ),
+        sortedSets: Object.fromEntries(
+          [...this.sortedSets.entries()].map(([k, map]) => [k, Object.fromEntries(map)])
+        ),
+        ttlMap: Object.fromEntries(this.ttlMap),
+        counters: Object.fromEntries(this.counters),
+      };
+      fs.writeFileSync(this.dbPath, JSON.stringify(state, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('⚠️ Failed to save mock Valkey state:', e);
+    }
+  }
 
   on(_event: string, _cb: Function): void {}
 
   async connect(): Promise<void> {
-    console.log('🔵 Using in-memory Valkey mock');
+    console.log('🔵 Using in-memory Valkey mock with persistence');
   }
 
   async disconnect(): Promise<void> {
@@ -21,21 +79,28 @@ export class ValkeyMock {
     this.sortedSets.clear();
     this.ttlMap.clear();
     this.counters.clear();
+    try {
+      if (fs.existsSync(this.dbPath)) {
+        fs.unlinkSync(this.dbPath);
+      }
+    } catch {}
   }
 
   async quit(): Promise<void> {
-    await this.disconnect();
+    // Keep file on quit so it persists across restarts
   }
 
   // ─── String Operations ─────────────────────────────
   async set(key: string, value: string): Promise<'OK'> {
     this.store.set(key, value);
+    this.saveState();
     return 'OK';
   }
 
   async setEx(key: string, seconds: number, value: string): Promise<'OK'> {
     this.store.set(key, value);
     this.ttlMap.set(key, Date.now() + seconds * 1000);
+    this.saveState();
     return 'OK';
   }
 
@@ -51,6 +116,7 @@ export class ValkeyMock {
       this.ttlMap.delete(key);
       if (deleted) count++;
     }
+    if (count > 0) this.saveState();
     return count;
   }
 
@@ -66,6 +132,7 @@ export class ValkeyMock {
   async incr(key: string): Promise<number> {
     const val = (this.counters.get(key) || 0) + 1;
     this.counters.set(key, val);
+    this.saveState();
     return val;
   }
 
@@ -84,16 +151,18 @@ export class ValkeyMock {
     if (!this.hashes.has(key)) this.hashes.set(key, new Map());
     const map = this.hashes.get(key)!;
 
+    let affected = 0;
     if (typeof fieldOrObj === 'string' && value !== undefined) {
       map.set(fieldOrObj, value);
-      return 1;
+      affected = 1;
     } else if (typeof fieldOrObj === 'object') {
       for (const [k, v] of Object.entries(fieldOrObj)) {
         map.set(k, v);
       }
-      return Object.keys(fieldOrObj).length;
+      affected = Object.keys(fieldOrObj).length;
     }
-    return 0;
+    if (affected > 0) this.saveState();
+    return affected;
   }
 
   async hGet(key: string, field: string): Promise<string | null> {
@@ -115,6 +184,7 @@ export class ValkeyMock {
     for (const f of fields) {
       if (map.delete(f)) count++;
     }
+    if (count > 0) this.saveState();
     return count;
   }
 
@@ -132,6 +202,7 @@ export class ValkeyMock {
     const current = parseInt(map.get(field) || '0', 10);
     const newVal = current + increment;
     map.set(field, newVal.toString());
+    this.saveState();
     return newVal;
   }
 
@@ -142,6 +213,7 @@ export class ValkeyMock {
     for (const item of items) {
       map.set(item.value, item.score);
     }
+    this.saveState();
     return items.length;
   }
 
@@ -152,6 +224,7 @@ export class ValkeyMock {
     for (const m of members) {
       if (map.delete(m)) count++;
     }
+    if (count > 0) this.saveState();
     return count;
   }
 
@@ -161,6 +234,7 @@ export class ValkeyMock {
     const current = map.get(member) || 0;
     const newVal = current + increment;
     map.set(member, newVal);
+    this.saveState();
     return newVal;
   }
 
@@ -194,6 +268,7 @@ export class ValkeyMock {
       }
     }
     this.store.set(key, JSON.stringify([...set]));
+    this.saveState();
     return added;
   }
 
@@ -210,6 +285,7 @@ export class ValkeyMock {
       this.hashes.delete(key);
       this.sortedSets.delete(key);
       this.ttlMap.delete(key);
+      this.saveState();
       return true;
     }
     return false;
