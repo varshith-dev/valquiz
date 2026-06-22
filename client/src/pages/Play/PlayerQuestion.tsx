@@ -8,6 +8,7 @@ import AnswerButton from '../../components/Question/AnswerButton';
 import { firestore } from '../../services/firebase';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { HelpCircle, Sparkles, CheckSquare } from 'lucide-react';
+import { useTimer } from '../../hooks/useTimer';
 
 export const PlayerQuestion: React.FC = () => {
   const navigate = useNavigate();
@@ -21,6 +22,9 @@ export const PlayerQuestion: React.FC = () => {
   // Current question from Firestore
   const [question, setQuestion] = useState<any>(null);
   const [qIndex, setQIndex] = useState(-1);
+  
+  const secondsLeft = useTimer(question ? (question.timeLimit || question.time_limit || 20) : 20);
+  const isMultiChoice = question ? (question.correct && question.correct.length > 1) : false;
   
   // Answering states
   const [selectedOption, setSelectedOption] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
@@ -72,23 +76,30 @@ export const PlayerQuestion: React.FC = () => {
 
         // 2. Transition to results/feedback screen
         if (sessionData.status === 'leaderboard') {
-          if (localPlayerStats) {
-            dispatch(updatePlayerStats({
-              streak: localPlayerStats.streak,
-              isCorrect: localPlayerStats.lastAnswerCorrect,
-            }));
+          const currentIdx = sessionData.currentQuestionIndex || 0;
+          const activeQuestion = sessionData.questions?.[currentIdx];
+          const stats = localPlayerStats || {
+            streak: 0,
+            lastAnswerCorrect: false,
+            lastAnswerPoints: 0,
+            lastResponseTimeMs: 0
+          };
 
-            // Navigate to feedback page
-            navigate('/player/feedback', {
-              state: {
-                correct: localPlayerStats.lastAnswerCorrect,
-                correctAnswer: question?.correct || [],
-                pointsEarned: localPlayerStats.lastAnswerPoints || 0,
-                streak: localPlayerStats.streak || 0,
-                responseTimeMs: localPlayerStats.lastResponseTimeMs || 0,
-              }
-            });
-          }
+          dispatch(updatePlayerStats({
+            streak: stats.streak,
+            isCorrect: stats.lastAnswerCorrect,
+          }));
+
+          // Navigate to feedback page
+          navigate('/player/feedback', {
+            state: {
+              correct: stats.lastAnswerCorrect,
+              correctAnswer: activeQuestion?.correct || [],
+              pointsEarned: stats.lastAnswerPoints || 0,
+              streak: stats.streak || 0,
+              responseTimeMs: stats.lastResponseTimeMs || 0,
+            }
+          });
           return;
         }
 
@@ -124,6 +135,19 @@ export const PlayerQuestion: React.FC = () => {
     return () => unsubscribe();
   }, [pin, qIndex, navigate, dispatch, nickname, localPlayerStats, question]);
 
+  // Auto submit when time is up
+  useEffect(() => {
+    if (secondsLeft === 0 && !hasAnswered && question) {
+      if (question.type === 'match') {
+        submitAnswer(Object.values(matches));
+      } else if (isMultiChoice) {
+        submitAnswer(selectedMultiOptions);
+      } else {
+        submitAnswer([]);
+      }
+    }
+  }, [secondsLeft, hasAnswered, question, matches, selectedMultiOptions, isMultiChoice]);
+
   // If no question received yet, show waiting screen
   if (!question) {
     return (
@@ -135,8 +159,6 @@ export const PlayerQuestion: React.FC = () => {
       </div>
     );
   }
-
-  const isMultiChoice = question.correct && question.correct.length > 1;
 
   // Submit Answer utility to write to Firestore
   const submitAnswer = async (answerIds: string[]) => {
@@ -230,6 +252,20 @@ export const PlayerQuestion: React.FC = () => {
         }}
       >
         <span>{nickname || 'Guest'}</span>
+        {!hasAnswered && (
+          <span 
+            style={{ 
+              backgroundColor: 'var(--color-yellow)', 
+              color: '#272320', 
+              padding: '2px 10px', 
+              borderRadius: '4px', 
+              border: '2px solid var(--text-primary)',
+              fontWeight: 900
+            }}
+          >
+            ⏱️ {secondsLeft}s
+          </span>
+        )}
         <span style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)', padding: '2px 8px' }}>
           Q{qIndex + 1} • PIN {pin || '0000'}
         </span>

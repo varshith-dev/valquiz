@@ -76,7 +76,6 @@ export const PlayerLobby: React.FC = () => {
 
     return () => unsubscribe();
   }, [pin, dispatch, navigate]);
-
   // Listen to live player pool joining in the lobby
   useEffect(() => {
     const activePin = pin || sessionStorage.getItem('valquiz_pin');
@@ -85,9 +84,12 @@ export const PlayerLobby: React.FC = () => {
     const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', activePin, 'players'), (snapshot) => {
       const list: string[] = [];
       snapshot.forEach((d) => {
-        list.push(d.id);
+        const pData = d.data();
+        list.push(pData.nickname || d.id);
       });
       setLobbyPlayers(list);
+    }, (err) => {
+      console.error("Firestore lobby players listener error:", err);
     });
 
     return () => unsubscribe();

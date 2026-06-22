@@ -11,6 +11,7 @@ export const AIGenerate: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [previewQuiz, setPreviewQuiz] = useState<any | null>(null);
   const [error, setError] = useState('');
+  const [customApiKey, setCustomApiKey] = useState(localStorage.getItem('valquiz_gemini_api_key') || '');
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,9 +20,9 @@ export const AIGenerate: React.FC = () => {
     setLoading(true);
     setError('');
 
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || customApiKey || '';
     if (!apiKey) {
-      setError('Gemini API key is not configured in client environment variables.');
+      setError('Gemini API key is not configured. Please input your Gemini API key in the configuration field below.');
       setLoading(false);
       return;
     }
@@ -181,6 +182,46 @@ Return ONLY valid JSON in this exact format (do not wrap it in markdown code blo
             >
               <AlertCircle size={18} />
               <span>{error}</span>
+            </div>
+          )}
+
+          {!import.meta.env.VITE_GEMINI_API_KEY && !previewQuiz && (
+            <div 
+              className="minimalist-card animate-fade-in-up" 
+              style={{ 
+                border: '2px solid var(--color-brand)', 
+                marginBottom: '20px', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '12px' 
+              }}
+            >
+              <label style={{ display: 'block', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.85rem', margin: 0 }}>
+                Gemini API Key Configuration
+              </label>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                To generate quizzes via AI in production, configure your Gemini API Key. It is stored locally in your browser.
+              </p>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <input
+                  type="password"
+                  placeholder="Paste your Gemini API key (e.g. AIzaSy...)"
+                  value={customApiKey}
+                  onChange={(e) => {
+                    setCustomApiKey(e.target.value);
+                    localStorage.setItem('valquiz_gemini_api_key', e.target.value);
+                  }}
+                  style={{ flexGrow: 1, padding: '10px', border: '1.5px solid var(--text-primary)', borderRadius: '4px', background: 'var(--bg-primary)', fontWeight: 600 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => alert('Gemini API Key Saved Successfully!')}
+                  className="minimalist-button minimalist-button-primary"
+                  style={{ padding: '10px 20px', fontSize: '0.9rem' }}
+                >
+                  Save Key
+                </button>
+              </div>
             </div>
           )}
 
