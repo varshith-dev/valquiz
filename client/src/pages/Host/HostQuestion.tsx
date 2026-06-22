@@ -1,30 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setCurrentQuestionIndex, setHintRevealed, setPlayers } from '../../store/gameSlice';
+import { setHintRevealed, setPlayers, setStatus } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';
-import useSocket from '../../hooks/useSocket';
+import { firestore } from '../../services/firebase';
+import { collection, onSnapshot, doc, getDocs, setDoc } from 'firebase/firestore';
 import { Check, BarChart2, Pause, Play, Sparkles } from 'lucide-react';
-import type { LeaderboardEntry } from '../../types/game';
 
 export const HostQuestion: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
-  const { questions, currentQuestionIndex, isHintRevealed } = useSelector((state: RootState) => state.game);
-  
-  // Server-pushed question data (with correct answers)
-  const [serverQuestion, setServerQuestion] = useState<any>(null);
-  const [serverQIndex, setServerQIndex] = useState(-1);
+  const { questions, currentQuestionIndex, isHintRevealed, pin } = useSelector((state: RootState) => state.game);
   
   // Set default question index to 0 if not set
   const currentIdx = currentQuestionIndex < 0 ? 0 : currentQuestionIndex;
   
-  // Use server question if available, fall back to Redux store
-  const question = serverQuestion || questions[currentIdx] || {
+  const question = questions[currentIdx] || {
     text: 'Waiting for question...',
     options: [],
     correct: [],
@@ -38,82 +33,167 @@ export const HostQuestion: React.FC = () => {
   const [answeredCount, setAnsweredCount] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [answerDistribution, setAnswerDistribution] = useState<Record<string, number>>({});
+  const [answerDistribution, setAnswerDistribution] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
 
   // Hook timer countdown (supports pause/resume)
   const secondsLeft = useTimer(timeLimit, () => {
     handleTimerComplete();
   }, isPaused);
 
-  // Listen for question:host from server (with correct answers)
-  const handleQuestionHost = useCallback((data: any) => {
-    setServerQuestion({
-      text: data.text,
-      options: data.options,
-      correct: data.correct || [],
-      timeLimit: data.timeLimit,
-      type: 'mcq',
-    });
-    setServerQIndex(data.qIndex);
-    dispatch(setCurrentQuestionIndex(data.qIndex));
-    setShowResults(false);
-    setAnsweredCount(0);
-    setAnswerDistribution({});
-    setIsPaused(false);
-  }, [dispatch]);
-  useSocket('question:host', handleQuestionHost);
-
-  // Listen for leaderboard updates (count answers)
-  const handleLeaderboardUpdate = useCallback((data: any) => {
-    if (data.leaderboard) {
-      setAnsweredCount(prev => prev + 1);
-      
-      // Update Redux players
-      const playerObjects = data.leaderboard.map((entry: LeaderboardEntry) => ({
-        nickname: entry.nickname,
-        score: entry.score,
-        streak: entry.streak,
-        rank: entry.rank,
-      }));
-      dispatch(setPlayers(playerObjects));
-    }
-  }, [dispatch]);
-  useSocket('leaderboard:update', handleLeaderboardUpdate);
-
-  // Listen for projector data (answer distribution)
-  const handleProjectorData = useCallback((data: any) => {
-    if (data.answerDistribution) {
-      setAnswerDistribution(data.answerDistribution);
-    }
-  }, []);
-  useSocket('projector:data', handleProjectorData);
-
-  // Listen for game finished
-  const handleGameFinished = useCallback(() => {
-    navigate('/a/host/podium');
-  }, [navigate]);
-  useSocket('game:finished', handleGameFinished);
-
-  // Broadcast question on mount if we have local questions but server hasn't pushed yet
+  // Sync with Firestore answers subcollection
   useEffect(() => {
-    if (!serverQuestion && questions[currentIdx]) {
-      dispatch(setCurrentQuestionIndex(currentIdx));
+    if (!pin) return;
+
+    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', pin, 'answers'), (snapshot) => {
+      setAnsweredCount(snapshot.size);
+
+      // Aggregate answer choices in real-time
+      const distribution: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+      snapshot.forEach((d) => {
+        const data = d.data();
+        if (data.answerIds && Array.isArray(data.answerIds)) {
+          data.answerIds.forEach((ansId: string) => {
+            if (distribution[ansId] !== undefined) {
+              distribution[ansId]++;
+            }
+          });
+        }
+      });
+      setAnswerDistribution(distribution);
+    });
+
+    return () => unsubscribe();
+  }, [pin]);
+
+  const calculateAndPublishScores = async () => {
+    if (!pin) return;
+    try {
+      // 1. Get all players
+      const playersSnapshot = await getDocs(collection(firestore, 'game_sessions', pin, 'players'));
+      
+      // 2. Get all answers submitted
+      const answersSnapshot = await getDocs(collection(firestore, 'game_sessions', pin, 'answers'));
+      const answersMap: Record<string, any> = {};
+      answersSnapshot.forEach((d) => {
+        answersMap[d.id] = d.data();
+      });
+
+      const currentQ = questions[currentIdx];
+      const correctAnswers = currentQ.correct || [];
+      const timeLimitMs = timeLimit * 1000;
+
+      const playerUpdates: any[] = [];
+
+      for (const pDoc of playersSnapshot.docs) {
+        const player = pDoc.data();
+        const nickname = pDoc.id;
+        const answer = answersMap[nickname];
+
+        let correct = false;
+        let pointsEarned = 0;
+        let streak = player.streak || 0;
+        let responseTimeMs = 0;
+
+        if (answer) {
+          responseTimeMs = answer.responseTimeMs || 0;
+          const playerAnswers = answer.answerIds || [];
+
+          if (currentQ.type === 'match') {
+            correct = true; // Fallback matches are correct
+          } else {
+            // MCQ correctness evaluation
+            const isCorrectSorted = [...correctAnswers].sort().join(',');
+            const playerSorted = [...playerAnswers].sort().join(',');
+            correct = isCorrectSorted === playerSorted;
+          }
+
+          if (correct) {
+            streak += 1;
+            const ratio = Math.max(0, 1 - responseTimeMs / timeLimitMs);
+            // Balanced scoring: 30% speed, 70% accuracy
+            const baseScore = Math.round(300 + ratio * 700);
+            const multiplier = 1 + Math.min(streak - 1, 4) * 0.2; // Max 2x multiplier
+            pointsEarned = Math.round(baseScore * multiplier);
+          } else {
+            streak = 0;
+          }
+        } else {
+          streak = 0;
+        }
+
+        const newScore = (player.score || 0) + pointsEarned;
+
+        playerUpdates.push({
+          ref: doc(firestore, 'game_sessions', pin, 'players', nickname),
+          data: {
+            score: newScore,
+            streak,
+            lastAnswerCorrect: correct,
+            lastAnswerPoints: pointsEarned,
+            lastResponseTimeMs: responseTimeMs,
+          }
+        });
+      }
+
+      // Commit player scores updates
+      await Promise.all(playerUpdates.map(u => setDoc(u.ref, u.data, { merge: true })));
+
+      // 3. Compile final sorted leaderboard ranks
+      const updatedPlayersSnapshot = await getDocs(collection(firestore, 'game_sessions', pin, 'players'));
+      const updatedPlayers: any[] = [];
+      updatedPlayersSnapshot.forEach((d) => {
+        updatedPlayers.push(d.data());
+      });
+
+      updatedPlayers.sort((a, b) => b.score - a.score);
+      const leaderboard = updatedPlayers.map((p, idx) => ({
+        nickname: p.nickname,
+        score: p.score,
+        streak: p.streak,
+        rank: idx + 1,
+      }));
+
+      // Update Redux state
+      dispatch(setPlayers(leaderboard));
+
+      // 4. Update session status to trigger player clients navigation
+      await setDoc(doc(firestore, 'game_sessions', pin), {
+        status: 'leaderboard',
+        leaderboard,
+        showResults: true,
+        answerDistribution,
+      }, { merge: true });
+
+    } catch (err) {
+      console.error('Error calculating and publishing scores:', err);
     }
-  }, [currentIdx, dispatch, questions, serverQuestion]);
-
-  const handleTimerComplete = () => {
-    setShowResults(true);
   };
 
-  const handleManualSkip = () => {
+  const handleTimerComplete = async () => {
     setShowResults(true);
+    await calculateAndPublishScores();
   };
 
-  const handleRevealHint = () => {
+  const handleManualSkip = async () => {
+    setShowResults(true);
+    await calculateAndPublishScores();
+  };
+
+  const handleRevealHint = async () => {
     dispatch(setHintRevealed(true));
+    if (pin) {
+      try {
+        await setDoc(doc(firestore, 'game_sessions', pin), {
+          isHintRevealed: true,
+        }, { merge: true });
+      } catch (err) {
+        console.error('Failed to sync hint reveal:', err);
+      }
+    }
   };
 
   const handleNext = () => {
+    dispatch(setStatus('leaderboard'));
     navigate('/a/host/leaderboard');
   };
 
@@ -138,7 +218,7 @@ export const HostQuestion: React.FC = () => {
         <header className="minimalist-header">
           <div>
             <span style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-              Question {(serverQIndex >= 0 ? serverQIndex : currentIdx) + 1} of {questions.length || '?'}
+              Question {currentIdx + 1} of {questions.length || '?'}
             </span>
             <h1 style={{ fontSize: '2rem', marginTop: '4px' }}>{question.text}</h1>
           </div>

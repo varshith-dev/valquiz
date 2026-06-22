@@ -1,14 +1,13 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setCurrentQuestionIndex, setStatus, setPlayers } from '../../store/gameSlice';
+import { setCurrentQuestionIndex, setStatus } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import LeaderboardBar from '../../components/Leaderboard/LeaderboardBar';
-import socketService from '../../services/socket';
-import useSocket from '../../hooks/useSocket';
+import { firestore } from '../../services/firebase';
+import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
 import { Trophy, ArrowRight, Award } from 'lucide-react';
-import type { LeaderboardEntry } from '../../types/game';
 
 export const HostLeaderboard: React.FC = () => {
   const navigate = useNavigate();
@@ -16,46 +15,51 @@ export const HostLeaderboard: React.FC = () => {
 
   const { questions, currentQuestionIndex, players, pin } = useSelector((state: RootState) => state.game);
   
-  // Use Redux players (updated by HostQuestion leaderboard:update)
   const activePlayers = players.length > 0 ? players : [];
 
   const maxScore = activePlayers.reduce((max, p) => p.score > max ? p.score : max, 0);
 
   const isLastQuestion = currentQuestionIndex >= questions.length - 1;
 
-  // Listen for leaderboard updates (may arrive after we navigate here)
-  const handleLeaderboardUpdate = useCallback((data: any) => {
-    if (data.leaderboard) {
-      const playerObjects = data.leaderboard.map((entry: LeaderboardEntry) => ({
-        nickname: entry.nickname,
-        score: entry.score,
-        streak: entry.streak,
-        rank: entry.rank,
-      }));
-      dispatch(setPlayers(playerObjects));
-    }
-  }, [dispatch]);
-  useSocket('leaderboard:update', handleLeaderboardUpdate);
+  const handleNextStep = async () => {
+    if (!pin) return;
 
-  // Listen for game finished event
-  const handleGameFinished = useCallback(() => {
-    dispatch(setStatus('podium'));
-    navigate('/a/host/podium');
-  }, [dispatch, navigate]);
-  useSocket('game:finished', handleGameFinished);
-
-  const handleNextStep = () => {
     if (isLastQuestion) {
-      // Emit host:next to let the server transition to the podium state and broadcast podium:reveal
-      socketService.emit('host:next', { pin });
+      try {
+        // Transition to podium in Firestore
+        await setDoc(doc(firestore, 'game_sessions', pin), {
+          status: 'podium'
+        }, { merge: true });
+
+        dispatch(setStatus('podium'));
+        navigate('/a/host/podium');
+      } catch (err) {
+        console.error('Failed to transition to podium:', err);
+      }
     } else {
-      // Emit host:next to advance to the next question
-      socketService.emit('host:next', { pin });
-      
-      const nextIdx = currentQuestionIndex + 1;
-      dispatch(setCurrentQuestionIndex(nextIdx));
-      dispatch(setStatus('question'));
-      navigate('/a/host/question');
+      try {
+        const nextIdx = currentQuestionIndex + 1;
+
+        // 1. Clear all answers from the subcollection
+        const answersSnap = await getDocs(collection(firestore, 'game_sessions', pin, 'answers'));
+        const deletePromises = answersSnap.docs.map((d) => deleteDoc(d.ref));
+        await Promise.all(deletePromises);
+
+        // 2. Advance question index and revert status to question
+        await setDoc(doc(firestore, 'game_sessions', pin), {
+          status: 'question',
+          currentQuestionIndex: nextIdx,
+          questionStartTime: Date.now(),
+          showResults: false,
+          isHintRevealed: false
+        }, { merge: true });
+
+        dispatch(setCurrentQuestionIndex(nextIdx));
+        dispatch(setStatus('question'));
+        navigate('/a/host/question');
+      } catch (err) {
+        console.error('Failed to advance to the next question:', err);
+      }
     }
   };
 
@@ -118,7 +122,7 @@ export const HostLeaderboard: React.FC = () => {
           )}
 
           <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>
-            <Award size={16} /> Leaderboard is real-time, synchronized across all active player sockets
+            <Award size={16} /> Leaderboard is real-time, synchronized across all active player sessions
           </div>
         </div>
       </main>

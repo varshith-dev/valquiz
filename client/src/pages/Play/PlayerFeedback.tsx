@@ -1,9 +1,10 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import { useLocation as useRouteLocation, useNavigate as useRouteNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import { updatePlayerStats, setHasAnswered } from '../../store/playerSlice';
-import useSocket from '../../hooks/useSocket';
+import { firestore } from '../../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { Award, Flame, TrendingUp } from 'lucide-react';
 
 export const PlayerFeedback: React.FC = () => {
@@ -11,6 +12,7 @@ export const PlayerFeedback: React.FC = () => {
   const navigate = useRouteNavigate();
   const dispatch = useDispatch();
 
+  const { pin } = useSelector((state: RootState) => state.game);
   const { nickname, score } = useSelector((state: RootState) => state.player);
 
   // Get answer result from navigation state (passed by PlayerQuestion after answer:result)
@@ -23,7 +25,7 @@ export const PlayerFeedback: React.FC = () => {
     // Reset answered indicator on mount
     dispatch(setHasAnswered(false));
     
-    // Update player stats from server result
+    // Update player stats from local result calculations
     dispatch(updatePlayerStats({
       score: score + pointsEarned,
       streak: newStreak,
@@ -31,31 +33,32 @@ export const PlayerFeedback: React.FC = () => {
     }));
   }, []);
 
-  // Listen for next question from server
-  const handleNextQuestion = useCallback(() => {
-    navigate('/player/question');
-  }, [navigate]);
-  useSocket('question:new', handleNextQuestion);
+  // Listen to game session status changes in Firestore
+  useEffect(() => {
+    if (!pin) return;
 
-  // Listen for game finished
-  const handleGameFinished = useCallback((data: any) => {
-    if (data && data.finalLeaderboard && nickname) {
-      const myEntry = data.finalLeaderboard.find((entry: any) => entry.nickname === nickname);
-      if (myEntry) {
-        dispatch(updatePlayerStats({
-          rank: myEntry.rank,
-          score: myEntry.score,
-        }));
+    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.status === 'question') {
+          navigate('/player/question');
+        } else if (data.status === 'finished' || data.status === 'podium') {
+          if (data.leaderboard && nickname) {
+            const myEntry = data.leaderboard.find((entry: any) => entry.nickname === nickname);
+            if (myEntry) {
+              dispatch(updatePlayerStats({
+                rank: myEntry.rank,
+                score: myEntry.score,
+              }));
+            }
+          }
+          navigate('/player/podium');
+        }
       }
-    }
-    navigate('/player/podium');
-  }, [navigate, dispatch, nickname]);
-  useSocket('game:finished', handleGameFinished);
+    });
 
-  const handlePodiumReveal = useCallback(() => {
-    navigate('/player/podium');
-  }, [navigate]);
-  useSocket('podium:reveal', handlePodiumReveal);
+    return () => unsubscribe();
+  }, [pin, navigate, nickname, dispatch]);
 
   return (
     <div 

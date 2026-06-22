@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { LayoutDashboard, PlusCircle, History, Settings, LogOut } from 'lucide-react';
 import type { RootState } from '../../store';
 import { resetGame } from '../../store/gameSlice';
+import { safeSignOut } from '../../services/firebase';
 
 export const HostNavigationRail: React.FC = () => {
   const navigate = useNavigate();
@@ -92,7 +93,12 @@ export const HostNavigationRail: React.FC = () => {
 
       {/* Exit Button */}
       <button
-        onClick={() => {
+        onClick={async () => {
+          try {
+            await safeSignOut();
+          } catch (e) {
+            console.error('Failed to sign out from Firebase:', e);
+          }
           if (pin) {
             localStorage.removeItem(`valquiz_game_session_${pin}`);
             const activeGamesRaw = localStorage.getItem('valquiz_active_games');

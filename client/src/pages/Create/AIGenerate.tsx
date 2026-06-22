@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import { ArrowLeft, Sparkles, Check, Edit3, AlertCircle } from 'lucide-react';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+import { safeRef, safeSet } from '../../services/firebase';
 
 export const AIGenerate: React.FC = () => {
   const navigate = useNavigate();
@@ -20,32 +19,85 @@ export const AIGenerate: React.FC = () => {
     setLoading(true);
     setError('');
 
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    if (!apiKey) {
+      setError('Gemini API key is not configured in client environment variables.');
+      setLoading(false);
+      return;
+    }
+
+    const difficulty = 'medium';
+    const numQuestions = 10;
+    const prompt = `Generate a ${difficulty}-difficulty quiz about "${topic}" with exactly ${numQuestions} multiple-choice questions.
+
+Return ONLY valid JSON in this exact format (do not wrap it in markdown code blocks like \`\`\`json ... \`\`\³, just return the raw JSON object string):
+{
+  "questions": [
+    {
+      "text": "Question text here",
+      "type": "mcq",
+      "options": [
+        { "id": "A", "text": "First option" },
+        { "id": "B", "text": "Second option" },
+        { "id": "C", "text": "Third option" },
+        { "id": "D", "text": "Fourth option" }
+      ],
+      "correct": ["A"],
+      "explanation": "Brief explanation of why this answer is correct",
+      "difficulty": "${difficulty}"
+    }
+  ]
+}`;
+
     try {
-      const response = await fetch(`${BACKEND_URL}/api/quiz/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          topic,
-          numQuestions: 10,
-          difficulty: 'medium',
-        }),
-      });
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.8, maxOutputTokens: 8192 },
+          }),
+        }
+      );
 
       if (!response.ok) {
-        throw new Error(`Generation failed: ${response.statusText}`);
+        throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-      if (data.success) {
-        setPreviewQuiz({
-          title: `AI Quiz: ${data.topic || topic}`,
-          questions: data.questions,
-        });
-      } else {
-        throw new Error(data.error || 'Failed to generate quiz');
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error('No content in Gemini response');
+
+      // Strip markdown code fences if Gemini returned them
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Could not parse JSON from Gemini response');
+      
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!parsed.questions || !Array.isArray(parsed.questions)) {
+        throw new Error('Invalid quiz response structure from AI');
       }
+
+      // Convert questions format to client structure
+      const questionsList = parsed.questions.map((q: any, i: number) => ({
+        id: `q_${i + 1}_${Date.now()}`,
+        sort_order: i + 1,
+        type: 'mcq' as const,
+        text: q.text,
+        options: q.options.map((opt: any) => ({
+          id: opt.id,
+          text: opt.text,
+        })),
+        correct: q.correct,
+        time_limit: 20,
+        hint: q.explanation || '',
+      }));
+
+      setPreviewQuiz({
+        title: `AI Quiz: ${topic}`,
+        questions: questionsList,
+      });
     } catch (err: any) {
       console.error('Error generating quiz:', err);
       setError(err.message || 'An error occurred during AI quiz generation.');
@@ -60,45 +112,36 @@ export const AIGenerate: React.FC = () => {
     setLoading(true);
     setError('');
 
+    const quizId = `quiz_${Date.now()}`;
+    const newQuiz = {
+      id: quizId,
+      title: previewQuiz.title,
+      description: `AI Generated Quiz about ${topic}`,
+      questions: previewQuiz.questions,
+      createdAt: Date.now(),
+    };
+
     try {
-      const response = await fetch(`${BACKEND_URL}/api/quiz`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: previewQuiz.title,
-          questions: previewQuiz.questions,
-        }),
-      });
+      // Save directly to Firestore using our redefined safeSet
+      await safeSet(safeRef(`quizzes/${quizId}`), newQuiz);
 
-      if (!response.ok) {
-        throw new Error(`Failed to save quiz: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        // Save to localStorage for backward compatibility with components reading from it
-        const raw = localStorage.getItem('valquiz_custom_quizzes');
-        let localList = [];
-        if (raw) {
-          try {
-            localList = JSON.parse(raw);
-          } catch (e) {
-            console.error('Failed to parse existing local quizzes', e);
-          }
+      // Save to localStorage for backward compatibility with components reading from it
+      const raw = localStorage.getItem('valquiz_custom_quizzes');
+      let localList = [];
+      if (raw) {
+        try {
+          localList = JSON.parse(raw);
+        } catch (e) {
+          console.error('Failed to parse existing local quizzes', e);
         }
-        // Append the new saved quiz
-        localList.push(data.quiz);
-        localStorage.setItem('valquiz_custom_quizzes', JSON.stringify(localList));
-
-        navigate('/a/host');
-      } else {
-        throw new Error(data.error || 'Failed to save quiz to dashboard');
       }
+      localList.push(newQuiz);
+      localStorage.setItem('valquiz_custom_quizzes', JSON.stringify(localList));
+
+      navigate('/a/host');
     } catch (err: any) {
       console.error('Error saving quiz:', err);
-      alert(`Error saving quiz: ${err.message}`);
+      setError(err.message || 'Failed to save quiz to dashboard.');
     } finally {
       setLoading(false);
     }
@@ -160,7 +203,7 @@ export const AIGenerate: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                  Prompt will be validated by FastAPI microservice schema
+                  Prompt will be processed directly via Gemini API Client-side
                 </span>
                 
                 <button 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth, googleProvider, isMock } from '../../services/firebase';
+import { auth, googleProvider } from '../../services/firebase';
 import { signInWithPopup, onAuthStateChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { AlertCircle, ShieldAlert } from 'lucide-react';
 
@@ -15,19 +15,6 @@ export const HostLogin: React.FC = () => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         navigate('/a/host');
-      } else {
-        // Enforce 14-day mock session expiration (14 days in milliseconds)
-        const stored = localStorage.getItem('valquiz_mock_user');
-        const loginTime = localStorage.getItem('valquiz_mock_login_time');
-        if (stored && loginTime) {
-          const elapsed = Date.now() - parseInt(loginTime, 10);
-          if (elapsed < 14 * 24 * 60 * 60 * 1000) {
-            navigate('/a/host');
-          } else {
-            localStorage.removeItem('valquiz_mock_user');
-            localStorage.removeItem('valquiz_mock_login_time');
-          }
-        }
       }
       setSessionChecked(true);
     });
@@ -39,30 +26,15 @@ export const HostLogin: React.FC = () => {
     setLoading(true);
 
     try {
-      if (isMock) {
-        throw new Error('Sandbox mode active — Firebase not configured');
-      }
       // Enforce local session persistence (survives browser restarts/closes)
       await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, googleProvider);
       navigate('/a/host');
     } catch (err: any) {
-      console.warn("Google Auth failed or standalone mode active. Simulating session authorization...", err);
-      // Hackathon sandbox fallback: simulate login and redirect to dashboard
-      setError('Simulating Google Authorization (Sandbox Mode)...');
-      
-      // Save simulated session with timestamp for 14-day checking
-      localStorage.setItem('valquiz_mock_user', JSON.stringify({
-        uid: 'mock_uid_123',
-        displayName: 'Mock Administrator',
-        email: 'admin@valquiz.local',
-      }));
-      localStorage.setItem('valquiz_mock_login_time', Date.now().toString());
-      
-      setTimeout(() => {
-        setLoading(false);
-        navigate('/a/host');
-      }, 1500);
+      console.error("Google Auth failed:", err);
+      setError(err.message || 'Google Authentication failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -186,45 +158,6 @@ export const HostLogin: React.FC = () => {
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
           </svg>
           {loading ? 'Authorizing...' : 'Sign in with Google'}
-        </button>
-
-        <button
-          onClick={() => {
-            setError('Bypassing Auth (Sandbox Mode)...');
-            setLoading(true);
-            localStorage.setItem('valquiz_mock_user', JSON.stringify({
-              uid: 'mock_uid_123',
-              displayName: 'Mock Administrator',
-              email: 'admin@valquiz.local',
-            }));
-            localStorage.setItem('valquiz_mock_login_time', Date.now().toString());
-            setTimeout(() => {
-              setLoading(false);
-              navigate('/a/host');
-            }, 1000);
-          }}
-          disabled={loading}
-          className="minimalist-button"
-          style={{
-            width: '100%',
-            padding: '14px 20px',
-            fontFamily: 'var(--font-title)',
-            fontSize: '1rem',
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            borderRadius: '6px',
-            border: '3px solid var(--text-primary)',
-            backgroundColor: 'var(--bg-secondary)',
-            color: 'var(--text-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            marginTop: '12px'
-          }}
-        >
-          Bypass Auth (Sandbox Mode)
         </button>
       </div>
 

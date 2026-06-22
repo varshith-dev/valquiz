@@ -5,7 +5,8 @@ import type { RootState } from '../../store';
 import { resetGame } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import PodiumStage from '../../components/Podium/PodiumStage';
-import { safeRef, safeSet } from '../../services/firebase';
+import { safeRef, safeSet, firestore } from '../../services/firebase';
+import { doc, deleteDoc, getDocs, collection } from 'firebase/firestore';
 import { Home, RefreshCw } from 'lucide-react';
 
 interface Particle {
@@ -68,20 +69,34 @@ export const HostPodium: React.FC = () => {
     { nickname: 'QuizMaster', score: 950, streak: 0, rank: 3 },
   ];
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if (pin) {
-      // Cleanup the active game session in localStorage
-      localStorage.removeItem(`valquiz_game_session_${pin}`);
+      try {
+        // Cleanup subcollections
+        const playersSnap = await getDocs(collection(firestore, 'game_sessions', pin, 'players'));
+        await Promise.all(playersSnap.docs.map(d => deleteDoc(d.ref)));
 
-      const activeGamesRaw = localStorage.getItem('valquiz_active_games');
-      if (activeGamesRaw) {
-        try {
-          const activeGames = JSON.parse(activeGamesRaw);
-          const updated = activeGames.filter((p: string) => p !== pin);
-          localStorage.setItem('valquiz_active_games', JSON.stringify(updated));
-        } catch (e) {
-          console.error('Failed to cleanup active game PIN', e);
+        const answersSnap = await getDocs(collection(firestore, 'game_sessions', pin, 'answers'));
+        await Promise.all(answersSnap.docs.map(d => deleteDoc(d.ref)));
+
+        // Destroy main session doc
+        await deleteDoc(doc(firestore, 'game_sessions', pin));
+
+        // Cleanup the active game session in localStorage
+        localStorage.removeItem(`valquiz_game_session_${pin}`);
+
+        const activeGamesRaw = localStorage.getItem('valquiz_active_games');
+        if (activeGamesRaw) {
+          try {
+            const activeGames = JSON.parse(activeGamesRaw);
+            const updated = activeGames.filter((p: string) => p !== pin);
+            localStorage.setItem('valquiz_active_games', JSON.stringify(updated));
+          } catch (e) {
+            console.error('Failed to cleanup active game PIN', e);
+          }
         }
+      } catch (err) {
+        console.error('Failed to destroy session in Firestore on exit:', err);
       }
     }
     dispatch(resetGame());

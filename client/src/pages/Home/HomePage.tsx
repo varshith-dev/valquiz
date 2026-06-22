@@ -3,8 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { setPin } from '../../store/gameSlice';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+import { firestore } from '../../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -28,16 +28,15 @@ export const HomePage: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/game/${pinCode}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Game not found. Check the PIN and try again.');
+      const docSnap = await getDoc(doc(firestore, 'game_sessions', pinCode));
+      if (!docSnap.exists()) {
+        setError('Game not found. Check the PIN and try again.');
         setLoading(false);
         return;
       }
 
-      const data = await res.json();
-      if (data.game?.status !== 'lobby') {
+      const gameData = docSnap.data();
+      if (gameData.status !== 'lobby') {
         setError('This game has already started or ended.');
         setLoading(false);
         return;
@@ -49,7 +48,7 @@ export const HomePage: React.FC = () => {
       navigate('/player/lobby');
     } catch (err) {
       console.error('PIN validation error:', err);
-      setError('Could not reach game server. Is it online?');
+      setError('Could not connect to database. Please check your network.');
       setLoading(false);
     }
   };
@@ -101,7 +100,7 @@ export const HomePage: React.FC = () => {
             lineHeight: 1.4,
           }}
         >
-          High-performance, real-time Valkey quiz engine. v1.0.1
+          High-performance, real-time serverless quiz engine.
         </p>
       </div>
 

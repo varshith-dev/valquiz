@@ -1,14 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
 import { setHasAnswered, updatePlayerStats } from '../../store/playerSlice';
 import { setCurrentQuestionIndex } from '../../store/gameSlice';
-import socketService from '../../services/socket';
 import AnswerButton from '../../components/Question/AnswerButton';
-import useSocket from '../../hooks/useSocket';
+import { firestore } from '../../services/firebase';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { HelpCircle, Sparkles, CheckSquare } from 'lucide-react';
-import type { AnswerResult } from '../../types/game';
 
 export const PlayerQuestion: React.FC = () => {
   const navigate = useNavigate();
@@ -19,7 +18,7 @@ export const PlayerQuestion: React.FC = () => {
   
   const [startTime, setStartTime] = useState(Date.now());
   
-  // Current question from server
+  // Current question from Firestore
   const [question, setQuestion] = useState<any>(null);
   const [qIndex, setQIndex] = useState(-1);
   
@@ -31,68 +30,101 @@ export const PlayerQuestion: React.FC = () => {
   const [showHintPopup, setShowHintPopup] = useState(false);
   const [isHintUnlocked, setIsHintUnlocked] = useState(false);
 
-  // Listen for new questions from server
-  const handleNewQuestion = useCallback((data: any) => {
-    setQuestion({
-      text: data.text,
-      options: data.options,
-      timeLimit: data.timeLimit,
-      type: 'mcq',
-      correct: [], // player doesn't know correct answer
-    });
-    setQIndex(data.qIndex);
-    dispatch(setCurrentQuestionIndex(data.qIndex));
-    dispatch(setHasAnswered(false));
-    setSelectedOption(null);
-    setSelectedMultiOptions([]);
-    setMatches({});
-    setStartTime(Date.now());
-    setIsHintUnlocked(false);
-  }, [dispatch]);
-  useSocket('question:new', handleNewQuestion);
+  // Keep track of player stats locally to prevent race conditions during transitions
+  const [localPlayerStats, setLocalPlayerStats] = useState<any>(null);
 
-  // Listen for answer result
-  const handleAnswerResult = useCallback((data: AnswerResult) => {
-    dispatch(updatePlayerStats({
-      score: undefined, // will be updated via leaderboard
-      streak: data.streak,
-      isCorrect: data.correct,
-    }));
-    // Navigate to feedback with result data
-    navigate('/player/feedback', {
-      state: {
-        correct: data.correct,
-        correctAnswer: data.correctAnswer,
-        pointsEarned: data.pointsEarned,
-        streak: data.streak,
-        responseTimeMs: data.responseTimeMs,
+  // Subscribe to player's stats document in real-time
+  useEffect(() => {
+    if (!pin || !nickname) return;
+
+    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin, 'players', nickname), (docSnap) => {
+      if (docSnap.exists()) {
+        setLocalPlayerStats(docSnap.data());
       }
     });
-  }, [dispatch, navigate]);
-  useSocket('answer:result', handleAnswerResult);
 
-  // Listen for game finished
-  const handleGameFinished = useCallback((data: any) => {
-    if (data && data.finalLeaderboard && nickname) {
-      const myEntry = data.finalLeaderboard.find((entry: any) => entry.nickname === nickname);
-      if (myEntry) {
-        dispatch(updatePlayerStats({
-          rank: myEntry.rank,
-          score: myEntry.score,
-        }));
+    return () => unsubscribe();
+  }, [pin, nickname]);
+
+  // Subscribe to game session document in Firestore
+  useEffect(() => {
+    if (!pin) return;
+
+    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
+      if (docSnap.exists()) {
+        const sessionData = docSnap.data();
+
+        // 1. Check for game finished / podium transition
+        if (sessionData.status === 'finished' || sessionData.status === 'podium') {
+          // If we have final leaderboard, update stats
+          if (sessionData.leaderboard && nickname) {
+            const myEntry = sessionData.leaderboard.find((entry: any) => entry.nickname === nickname);
+            if (myEntry) {
+              dispatch(updatePlayerStats({
+                rank: myEntry.rank,
+                score: myEntry.score,
+              }));
+            }
+          }
+          navigate('/player/podium');
+          return;
+        }
+
+        // 2. Transition to results/feedback screen
+        if (sessionData.status === 'leaderboard') {
+          if (localPlayerStats) {
+            dispatch(updatePlayerStats({
+              streak: localPlayerStats.streak,
+              isCorrect: localPlayerStats.lastAnswerCorrect,
+            }));
+
+            // Navigate to feedback page
+            navigate('/player/feedback', {
+              state: {
+                correct: localPlayerStats.lastAnswerCorrect,
+                correctAnswer: question?.correct || [],
+                pointsEarned: localPlayerStats.lastAnswerPoints || 0,
+                streak: localPlayerStats.streak || 0,
+                responseTimeMs: localPlayerStats.lastResponseTimeMs || 0,
+              }
+            });
+          }
+          return;
+        }
+
+        // 3. Question update sync
+        if (sessionData.status === 'question') {
+          const currentIdx = sessionData.currentQuestionIndex;
+          if (currentIdx !== undefined && currentIdx >= 0) {
+            const activeQuestion = sessionData.questions?.[currentIdx];
+            if (activeQuestion) {
+              // Trigger state reset only if this is a new question
+              if (currentIdx !== qIndex) {
+                setQuestion(activeQuestion);
+                setQIndex(currentIdx);
+                dispatch(setCurrentQuestionIndex(currentIdx));
+                dispatch(setHasAnswered(false));
+                setSelectedOption(null);
+                setSelectedMultiOptions([]);
+                setMatches({});
+                setStartTime(Date.now());
+                setIsHintUnlocked(false);
+              }
+
+              // Hint sync
+              if (sessionData.isHintRevealed) {
+                setIsHintUnlocked(true);
+              }
+            }
+          }
+        }
       }
-    }
-    navigate('/player/podium');
-  }, [navigate, dispatch, nickname]);
-  useSocket('game:finished', handleGameFinished);
+    });
 
-  // Listen for podium reveal
-  const handlePodiumReveal = useCallback(() => {
-    navigate('/player/podium');
-  }, [navigate]);
-  useSocket('podium:reveal', handlePodiumReveal);
+    return () => unsubscribe();
+  }, [pin, qIndex, navigate, dispatch, nickname, localPlayerStats, question]);
 
-  // If no question received yet, show waiting
+  // If no question received yet, show waiting screen
   if (!question) {
     return (
       <div className="brutalist-container" style={{ padding: '24px' }}>
@@ -106,21 +138,30 @@ export const PlayerQuestion: React.FC = () => {
 
   const isMultiChoice = question.correct && question.correct.length > 1;
 
-  // Single choice submit
-  const handleSingleAnswerSubmit = (option: 'A' | 'B' | 'C' | 'D') => {
-    if (hasAnswered) return;
-    
-    setSelectedOption(option);
-    dispatch(setHasAnswered(true));
+  // Submit Answer utility to write to Firestore
+  const submitAnswer = async (answerIds: string[]) => {
+    if (!pin || !nickname || hasAnswered) return;
 
+    dispatch(setHasAnswered(true));
     const responseTimeMs = Date.now() - startTime;
 
-    socketService.emit('player:answer', {
-      pin,
-      qIndex,
-      answerIds: [option],
-      responseTimeMs,
-    });
+    try {
+      await setDoc(doc(firestore, 'game_sessions', pin, 'answers', nickname), {
+        nickname,
+        qIndex,
+        answerIds,
+        responseTimeMs,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      console.error('Failed to submit answer to Firestore:', err);
+    }
+  };
+
+  // Single choice submit
+  const handleSingleAnswerSubmit = (option: 'A' | 'B' | 'C' | 'D') => {
+    setSelectedOption(option);
+    submitAnswer([option]);
   };
 
   // Multi choice toggling
@@ -136,16 +177,7 @@ export const PlayerQuestion: React.FC = () => {
   // Multi choice submit
   const handleMultiSubmit = () => {
     if (selectedMultiOptions.length === 0 || hasAnswered) return;
-
-    dispatch(setHasAnswered(true));
-    const responseTimeMs = Date.now() - startTime;
-
-    socketService.emit('player:answer', {
-      pin,
-      qIndex,
-      answerIds: selectedMultiOptions,
-      responseTimeMs,
-    });
+    submitAnswer(selectedMultiOptions);
   };
 
   // Match choice selection
@@ -163,16 +195,7 @@ export const PlayerQuestion: React.FC = () => {
     const filledCount = Object.keys(matches).filter((k) => matches[k]).length;
 
     if (filledCount < totalRequired || hasAnswered) return;
-
-    dispatch(setHasAnswered(true));
-    const responseTimeMs = Date.now() - startTime;
-
-    socketService.emit('player:answer', {
-      pin,
-      qIndex,
-      answerIds: Object.values(matches),
-      responseTimeMs,
-    });
+    submitAnswer(Object.values(matches));
   };
 
   // Resolve matching pool right column values for select dropdowns

@@ -1,12 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setPin, setQuestions, setStatus, setPlayers } from '../../store/gameSlice';
+import { setPin, setQuestions, setStatus, setPlayers, setCurrentQuestionIndex } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
-import socketService from '../../services/socket';
-import useSocket from '../../hooks/useSocket';
-import { safeRef, safeGet, auth } from '../../services/firebase';
+import { safeRef, safeGet, auth, firestore } from '../../services/firebase';
+import { collection, onSnapshot, doc, getDoc, setDoc } from 'firebase/firestore';
 import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
 import type { Question } from '../../types/game';
 
@@ -32,17 +31,6 @@ export const HostLobby: React.FC = () => {
       if (user) {
         setAuthChecked(true);
       } else {
-        // Enforce 14-day mock session check
-        const stored = localStorage.getItem('valquiz_mock_user');
-        const loginTime = localStorage.getItem('valquiz_mock_login_time');
-        if (stored && loginTime) {
-          const elapsed = Date.now() - parseInt(loginTime, 10);
-          if (elapsed < 14 * 24 * 60 * 60 * 1000) {
-            setAuthChecked(true);
-            return;
-          }
-        }
-        // Redirect to login if not authenticated
         navigate('/a/host/login');
       }
     });
@@ -61,194 +49,154 @@ export const HostLobby: React.FC = () => {
     }
   };
 
-  // Connect socket and create game on mount once authenticated
+  // Create game session on mount once authenticated
   useEffect(() => {
     if (!authChecked) return;
 
     if (!pin && !creating) {
       setCreating(true);
 
-      // Connect to socket server
-      socketService.connect();
-
-      let attempts = 0;
-      const maxAttempts = 15; // ~4.5 seconds
-
-      // Wait for connection then create game
-      const tryCreate = () => {
-        if (socketService.socket?.connected) {
-          socketService.emit('host:create', { nickname: 'HOST' }, (res: any) => {
-            if (res.error) {
-              setError(res.error);
-              setCreating(false);
-              return;
+      const initGame = async () => {
+        try {
+          // Generate a unique 6-digit PIN
+          let generatedPin = '';
+          let attempts = 0;
+          let unique = false;
+          while (attempts < 50 && !unique) {
+            generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+            const docSnap = await getDoc(doc(firestore, 'game_sessions', generatedPin));
+            if (!docSnap.exists()) {
+              unique = true;
             }
-            dispatch(setPin(res.pin));
-            sessionStorage.setItem('valquiz_pin', res.pin);
-
-            // Load default questions into the server
-            dispatch(setQuestions(mockQuestions));
-            loadQuestionsToServer(res.pin, mockQuestions);
-            setCreating(false);
-          });
-        } else {
-          attempts++;
-          if (attempts >= maxAttempts) {
-            setError('Could not connect to game server. Please make sure the backend server is running and accessible.');
-            setCreating(false);
-            return;
+            attempts++;
           }
-          // Wait and retry
-          setTimeout(tryCreate, 300);
+
+          if (!unique) {
+            throw new Error('Failed to generate a unique session PIN.');
+          }
+
+          const newSession = {
+            pin: generatedPin,
+            status: 'lobby',
+            currentQuestionIndex: -1,
+            createdAt: Date.now(),
+            mode: 'classic',
+            selectedQuizId: 'default',
+            questions: mockQuestions,
+            totalQuestions: mockQuestions.length,
+            showResults: false,
+            hostId: auth.currentUser?.uid || 'HOST'
+          };
+
+          // Save game session to Firestore
+          await setDoc(doc(firestore, 'game_sessions', generatedPin), newSession);
+
+          dispatch(setPin(generatedPin));
+          sessionStorage.setItem('valquiz_pin', generatedPin);
+          dispatch(setQuestions(mockQuestions));
+          setCreating(false);
+        } catch (e: any) {
+          console.error('Error creating session:', e);
+          setError(e.message || 'Could not initialize game session in database.');
+          setCreating(false);
         }
       };
 
-      // Small delay to let socket connect
-      setTimeout(tryCreate, 500);
+      initGame();
     }
   }, [dispatch, pin, creating, authChecked]);
 
-  const loadQuestionsToServer = (gamePin: string, qs: Question[]) => {
-    socketService.emit('host:load-questions', { pin: gamePin, questions: qs }, (res: any) => {
-      if (!res.success) {
-        console.error('Failed to load questions:', res.error);
-        setError('Failed to load questions to server');
-      } else {
-        console.log('✅ Questions loaded to server');
-      }
-    });
-  };
-
-  // Load custom quizzes from Firebase Realtime DB AND server API
+  // Load custom quizzes from Firestore
   useEffect(() => {
     const loadQuizzes = async () => {
-      let dbList: any[] = [];
       try {
         const snapshot = await safeGet(safeRef('quizzes'));
         if (snapshot.exists()) {
           const val = snapshot.val();
           if (val) {
-            dbList = Object.keys(val).map(key => ({
+            const dbList = Object.keys(val).map(key => ({
               ...val[key],
               id: key
             }));
+            setCustomQuizzes(dbList);
           }
         }
       } catch (e) {
         console.error('Failed to load custom quizzes from Firebase:', e);
       }
-
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-      fetch(`${backendUrl}/api/quiz`)
-        .then(res => res.json())
-        .then(data => {
-          const serverQuizzes = data.quizzes || [];
-          const combined = [...dbList];
-          serverQuizzes.forEach((sq: any) => {
-            if (!combined.some(cq => cq.id === sq.id)) {
-              combined.push(sq);
-            }
-          });
-          setCustomQuizzes(combined);
-        })
-        .catch(err => {
-          console.error('Error fetching server quizzes:', err);
-          setCustomQuizzes(dbList);
-        });
     };
 
     loadQuizzes();
   }, []);
 
-  const handleQuizSelect = (quizId: string) => {
+  const handleQuizSelect = async (quizId: string) => {
     setSelectedQuizId(quizId);
-    if (quizId === 'default') {
-      dispatch(setQuestions(mockQuestions));
-      if (pin) {
-        loadQuestionsToServer(pin, mockQuestions);
-      }
-    } else {
+    let selectedQuestions = mockQuestions;
+    if (quizId !== 'default') {
       const found = customQuizzes.find((q) => q.id === quizId);
-      if (found) {
-        if (found.questions) {
-          dispatch(setQuestions(found.questions));
-          if (pin) {
-            loadQuestionsToServer(pin, found.questions);
-          }
-        } else {
-          // Fetch from server details with backend URL prepended
-          const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-          fetch(`${backendUrl}/api/quiz/${quizId}`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.quiz && data.quiz.questions) {
-                dispatch(setQuestions(data.quiz.questions));
-                if (pin) {
-                  loadQuestionsToServer(pin, data.quiz.questions);
-                }
-              }
-            })
-            .catch(err => {
-              console.error('Error fetching quiz details:', err);
-              setError('Failed to load selected quiz details from server');
-            });
-        }
+      if (found && found.questions) {
+        selectedQuestions = found.questions;
+      }
+    }
+    dispatch(setQuestions(selectedQuestions));
+    if (pin) {
+      try {
+        await setDoc(doc(firestore, 'game_sessions', pin), {
+          selectedQuizId: quizId,
+          questions: selectedQuestions,
+          totalQuestions: selectedQuestions.length,
+        }, { merge: true });
+      } catch (err) {
+        console.error('Failed to sync quiz choices to session:', err);
       }
     }
   };
 
-  // Listen to new socket player joins
-  const handlePlayerJoined = useCallback((data: any) => {
-    const nick = data.nickname;
-    if (nick) {
-      setLocalPlayers(prev => {
-        if (prev.includes(nick)) return prev;
-        const updated = [...prev, nick];
-        // Update Redux state
-        const playerObjects = updated.map((name, i) => ({
-          nickname: name,
-          score: 0,
-          streak: 0,
-          rank: i + 1,
-        }));
-        dispatch(setPlayers(playerObjects));
-        return updated;
-      });
-    }
-  }, [dispatch]);
-  useSocket('player:joined', handlePlayerJoined);
+  // Listen to live player joins from Firestore subcollection
+  useEffect(() => {
+    if (!pin) return;
 
-  // Listen for player leaving
-  const handlePlayerLeft = useCallback((data: any) => {
-    const nick = data.nickname;
-    if (nick) {
-      setLocalPlayers(prev => {
-        const updated = prev.filter(p => p !== nick);
-        const playerObjects = updated.map((name, i) => ({
-          nickname: name,
-          score: 0,
-          streak: 0,
-          rank: i + 1,
-        }));
-        dispatch(setPlayers(playerObjects));
-        return updated;
+    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', pin, 'players'), (snapshot) => {
+      const playersList: string[] = [];
+      const playerObjects: any[] = [];
+      snapshot.forEach((d) => {
+        const pData = d.data();
+        playersList.push(pData.nickname);
+        playerObjects.push({
+          nickname: pData.nickname,
+          score: pData.score || 0,
+          streak: pData.streak || 0,
+          rank: pData.rank || 1,
+        });
       });
-    }
-  }, [dispatch]);
-  useSocket('player:left', handlePlayerLeft);
+      setLocalPlayers(playersList);
+      dispatch(setPlayers(playerObjects));
+    });
 
-  const handleStartGame = () => {
+    return () => unsubscribe();
+  }, [pin, dispatch]);
+
+  const handleStartGame = async () => {
     if (localPlayers.length === 0 || !pin) return;
     setLoading(true);
 
-    // Tell server to start the game
-    socketService.emit('host:start', { pin });
+    try {
+      // Transition host state and view in Firestore
+      await setDoc(doc(firestore, 'game_sessions', pin), {
+        status: 'question',
+        currentQuestionIndex: 0,
+        questionStartTime: Date.now(),
+        showResults: false,
+      }, { merge: true });
 
-    // Transition host state and view
-    setTimeout(() => {
+      dispatch(setCurrentQuestionIndex(0));
       dispatch(setStatus('question'));
       navigate('/a/host/question');
-    }, 1000);
+    } catch (e: any) {
+      console.error('Error starting game session:', e);
+      setError(e.message || 'Failed to start game session');
+      setLoading(false);
+    }
   };
 
   if (!authChecked) {
