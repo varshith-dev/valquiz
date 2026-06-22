@@ -2,9 +2,9 @@
   "cleanUrls": true,
   "outputDirectory": "dist",
   "rewrites": [
-    {
-      "source": "/((?!assets/|favicon.svg|vite.svg|.*\\.).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/favicon.svg", "destination": "/favicon.svg" },
+    { "source": "/favicon.ico", "destination": "/favicon.ico" },
+    { "source": "/:path*", "destination": "/index.html" }
   ]
 }

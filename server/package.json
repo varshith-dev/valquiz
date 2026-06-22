@@ -10,13 +10,14 @@
     "docker": "docker run -d --name valquiz-valkey -p 6379:6379 valkey/valkey:8.0-alpine valkey-server --maxmemory 256mb --maxmemory-policy allkeys-lru"
   },
   "dependencies": {
+    "@breeth/sdk": "^0.1.0",
+    "@google/genai": "^0.2.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.21.0",
     "iovalkey": "^0.3.3",
     "socket.io": "^4.7.5",
-    "uuid": "^10.0.0",
-    "@google/genai": "^0.2.0",
-    "@breeth/sdk": "^0.1.0"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
