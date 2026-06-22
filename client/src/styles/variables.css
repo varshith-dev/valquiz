@@ -3,8 +3,8 @@
   --nav-rail-width: 80px;
 
   /* Font Semantics */
-  --font-title: 'Outfit', 'Inter', sans-serif;
-  --font-body: 'Inter', sans-serif;
+  --font-title: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 
   /* Question Options - Classic High Contrast Fills */
   --color-red: #ef4444;        /* Classic red */
