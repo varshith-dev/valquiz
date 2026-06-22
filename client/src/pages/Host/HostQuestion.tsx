@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setHintRevealed, setPlayers, setStatus } from '../../store/gameSlice';
+import { setHintRevealed, setPlayers, setStatus, setQuestions, setCurrentQuestionIndex } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';
@@ -35,12 +35,21 @@ export const HostQuestion: React.FC = () => {
   const [answerDistribution, setAnswerDistribution] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
   const [phase, setPhase] = useState<'question' | 'reveal_distribution' | 'reveal_answer'>('question');
 
-  // Sync phase with game session status in Firestore
+  // Sync phase and state with game session status in Firestore
   useEffect(() => {
     if (!pin) return;
     const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+
+        // Restore questions and index on page load/refresh
+        if (data.questions && data.questions.length > 0) {
+          dispatch(setQuestions(data.questions));
+        }
+        if (data.currentQuestionIndex !== undefined && data.currentQuestionIndex >= 0) {
+          dispatch(setCurrentQuestionIndex(data.currentQuestionIndex));
+        }
+
         if (data.status === 'question') {
           setPhase('question');
         } else if (data.status === 'reveal_distribution') {
@@ -53,7 +62,7 @@ export const HostQuestion: React.FC = () => {
       }
     });
     return () => unsubscribe();
-  }, [pin]);
+  }, [pin, dispatch]);
 
   // Hook timer countdown (supports pause/resume)
   const secondsLeft = useTimer(timeLimit, () => {
@@ -88,11 +97,12 @@ export const HostQuestion: React.FC = () => {
   const calculateAndPublishScores = async () => {
     if (!pin) return;
     try {
-      // 1. Get all players
-      const playersSnapshot = await getDocs(collection(firestore, 'game_sessions', pin, 'players'));
+      // 1. Get all players and answers in parallel
+      const [playersSnapshot, answersSnapshot] = await Promise.all([
+        getDocs(collection(firestore, 'game_sessions', pin, 'players')),
+        getDocs(collection(firestore, 'game_sessions', pin, 'answers'))
+      ]);
       
-      // 2. Get all answers submitted
-      const answersSnapshot = await getDocs(collection(firestore, 'game_sessions', pin, 'answers'));
       const answersMap: Record<string, any> = {};
       answersSnapshot.forEach((d) => {
         answersMap[d.id] = d.data();
@@ -103,6 +113,7 @@ export const HostQuestion: React.FC = () => {
       const timeLimitMs = timeLimit * 1000;
 
       const playerUpdates: any[] = [];
+      const updatedPlayers: any[] = [];
 
       for (const pDoc of playersSnapshot.docs) {
         const player = pDoc.data();
@@ -153,18 +164,19 @@ export const HostQuestion: React.FC = () => {
             lastResponseTimeMs: responseTimeMs,
           }
         });
+
+        updatedPlayers.push({
+          ...player,
+          nickname: player.nickname || nickname,
+          score: newScore,
+          streak,
+          lastAnswerCorrect: correct,
+          lastAnswerPoints: pointsEarned,
+          lastResponseTimeMs: responseTimeMs,
+        });
       }
 
-      // Commit player scores updates
-      await Promise.all(playerUpdates.map(u => setDoc(u.ref, u.data, { merge: true })));
-
-      // 3. Compile final sorted leaderboard ranks
-      const updatedPlayersSnapshot = await getDocs(collection(firestore, 'game_sessions', pin, 'players'));
-      const updatedPlayers: any[] = [];
-      updatedPlayersSnapshot.forEach((d) => {
-        updatedPlayers.push(d.data());
-      });
-
+      // Sort leaderboard in memory
       updatedPlayers.sort((a, b) => b.score - a.score);
       const leaderboard = updatedPlayers.map((p, idx) => ({
         nickname: p.nickname,
@@ -176,13 +188,16 @@ export const HostQuestion: React.FC = () => {
       // Update Redux state
       dispatch(setPlayers(leaderboard));
 
-      // 4. Update session status to trigger player clients navigation/state updates
-      await setDoc(doc(firestore, 'game_sessions', pin), {
-        status: 'reveal_answer',
-        leaderboard,
-        showResults: true,
-        answerDistribution,
-      }, { merge: true });
+      // Commit player scores updates AND update session status concurrently in a single Promise.all block
+      await Promise.all([
+        ...playerUpdates.map(u => setDoc(u.ref, u.data, { merge: true })),
+        setDoc(doc(firestore, 'game_sessions', pin), {
+          status: 'reveal_answer',
+          leaderboard,
+          showResults: true,
+          answerDistribution,
+        }, { merge: true })
+      ]);
 
     } catch (err) {
       console.error('Error calculating and publishing scores:', err);

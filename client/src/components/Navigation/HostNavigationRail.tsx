@@ -112,6 +112,8 @@ export const HostNavigationRail: React.FC = () => {
               }
             }
           }
+          localStorage.removeItem('valquiz_admin_logged_in');
+          localStorage.removeItem('valquiz_admin_login_time');
           dispatch(resetGame());
           navigate('/');
         }}

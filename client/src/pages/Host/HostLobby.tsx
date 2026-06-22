@@ -9,6 +9,27 @@ import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { Users, Play, AlertCircle, Copy, Check, RefreshCw } from 'lucide-react';
 import type { Question } from '../../types/game';
 
+const checkAdminSession = () => {
+  const loggedIn = localStorage.getItem('valquiz_admin_logged_in') === 'true';
+  const loginTime = localStorage.getItem('valquiz_admin_login_time');
+  if (loggedIn && loginTime) {
+    const elapsed = Date.now() - Number(loginTime);
+    const seventeenDaysMs = 17 * 24 * 60 * 60 * 1000;
+    return elapsed < seventeenDaysMs;
+  }
+  return false;
+};
+
+const clearAdminSession = () => {
+  localStorage.removeItem('valquiz_admin_logged_in');
+  localStorage.removeItem('valquiz_admin_login_time');
+};
+
+const setAdminSession = () => {
+  localStorage.setItem('valquiz_admin_logged_in', 'true');
+  localStorage.setItem('valquiz_admin_login_time', Date.now().toString());
+};
+
 export const HostLobby: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -27,11 +48,33 @@ export const HostLobby: React.FC = () => {
 
   // Authenticate host credentials
   useEffect(() => {
+    // If the 17-day session is locally active, assume authenticated immediately to avoid redirect flickering on refresh
+    if (checkAdminSession()) {
+      setAuthChecked(true);
+    }
+
     const unsubscribe = auth.onAuthStateChanged((user: any) => {
       if (user && !user.isAnonymous) {
+        const loginTime = localStorage.getItem('valquiz_admin_login_time');
+        if (loginTime) {
+          const elapsed = Date.now() - Number(loginTime);
+          const seventeenDaysMs = 17 * 24 * 60 * 60 * 1000;
+          if (elapsed >= seventeenDaysMs) {
+            clearAdminSession();
+            auth.signOut();
+            navigate('/a/host/login');
+            return;
+          }
+        } else {
+          setAdminSession();
+        }
         setAuthChecked(true);
       } else {
-        navigate('/a/host/login');
+        // Only redirect to login if we don't have a valid local storage session
+        if (!checkAdminSession()) {
+          clearAdminSession();
+          navigate('/a/host/login');
+        }
       }
     });
     return () => unsubscribe();

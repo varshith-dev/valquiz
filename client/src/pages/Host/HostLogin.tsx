@@ -4,6 +4,27 @@ import { auth, googleProvider } from '../../services/firebase';
 import { signInWithPopup, onAuthStateChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { AlertCircle, ShieldAlert } from 'lucide-react';
 
+const checkAdminSession = () => {
+  const loggedIn = localStorage.getItem('valquiz_admin_logged_in') === 'true';
+  const loginTime = localStorage.getItem('valquiz_admin_login_time');
+  if (loggedIn && loginTime) {
+    const elapsed = Date.now() - Number(loginTime);
+    const seventeenDaysMs = 17 * 24 * 60 * 60 * 1000;
+    return elapsed < seventeenDaysMs;
+  }
+  return false;
+};
+
+const clearAdminSession = () => {
+  localStorage.removeItem('valquiz_admin_logged_in');
+  localStorage.removeItem('valquiz_admin_login_time');
+};
+
+const setAdminSession = () => {
+  localStorage.setItem('valquiz_admin_logged_in', 'true');
+  localStorage.setItem('valquiz_admin_login_time', Date.now().toString());
+};
+
 export const HostLogin: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -11,9 +32,27 @@ export const HostLogin: React.FC = () => {
   const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
-    // Check if user is already logged in via Firebase Auth listener
+    // If a valid local session exists within the 17 days, bypass check/redirect delay
+    if (checkAdminSession()) {
+      navigate('/a/host');
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user && !user.isAnonymous) {
+        const loginTime = localStorage.getItem('valquiz_admin_login_time');
+        if (loginTime) {
+          const elapsed = Date.now() - Number(loginTime);
+          const seventeenDaysMs = 17 * 24 * 60 * 60 * 1000;
+          if (elapsed >= seventeenDaysMs) {
+            clearAdminSession();
+            auth.signOut();
+            setSessionChecked(true);
+            return;
+          }
+        } else {
+          setAdminSession();
+        }
         navigate('/a/host');
       }
       setSessionChecked(true);
@@ -29,6 +68,7 @@ export const HostLogin: React.FC = () => {
       // Enforce local session persistence (survives browser restarts/closes)
       await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, googleProvider);
+      setAdminSession();
       navigate('/a/host');
     } catch (err: any) {
       console.error("Google Auth failed:", err);
