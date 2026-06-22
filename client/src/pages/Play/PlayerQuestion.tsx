@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
@@ -64,19 +64,58 @@ export const PlayerQuestion: React.FC = () => {
 
   // Keep track of player stats locally to prevent race conditions during transitions
   const [localPlayerStats, setLocalPlayerStats] = useState<any>(null);
+  const lastProcessedQIndexRef = useRef<number>(-1);
 
-  // Subscribe to player's stats document in real-time
+  // Subscribe to player's stats document in real-time and sync to Redux
   useEffect(() => {
     if (!pin || !nickname) return;
 
     const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin, 'players', nickname), (docSnap) => {
       if (docSnap.exists()) {
-        setLocalPlayerStats(docSnap.data());
+        const statsData = docSnap.data();
+        setLocalPlayerStats(statsData);
+        
+        // Sync stats to Redux store
+        dispatch(updatePlayerStats({
+          score: statsData.score || 0,
+          streak: statsData.streak || 0,
+          isCorrect: statsData.lastAnswerCorrect ?? null,
+          rank: statsData.rank || 0,
+        }));
       }
     });
 
     return () => unsubscribe();
-  }, [pin, nickname]);
+  }, [pin, nickname, dispatch]);
+
+  // Sync player's answered state and selections from Firestore (e.g., on mount, refresh, or question change)
+  useEffect(() => {
+    if (!pin || !nickname || qIndex < 0) return;
+
+    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin, 'answers', nickname), (docSnap) => {
+      if (docSnap.exists()) {
+        const answerData = docSnap.data();
+        if (answerData.qIndex === qIndex) {
+          dispatch(setHasAnswered(true));
+          if (answerData.answerIds && answerData.answerIds.length > 0) {
+            setSelectedOption(answerData.answerIds[0]);
+            setSelectedMultiOptions(answerData.answerIds);
+            if (question && question.type === 'match') {
+              const reconstructedMatches: Record<string, string> = {};
+              question.pairs?.forEach((pair: any, idx: number) => {
+                if (answerData.answerIds[idx]) {
+                  reconstructedMatches[pair.left] = answerData.answerIds[idx];
+                }
+              });
+              setMatches(reconstructedMatches);
+            }
+          }
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [pin, nickname, qIndex, question, dispatch]);
 
   // Subscribe to game session document in Firestore
   useEffect(() => {
@@ -104,29 +143,15 @@ export const PlayerQuestion: React.FC = () => {
           return;
         }
 
-        // 2. Handle leaderboard/reveal stats locally
-        if (status === 'leaderboard' || status === 'reveal_answer') {
-          const stats = localPlayerStats || {
-            streak: 0,
-            lastAnswerCorrect: false,
-            lastAnswerPoints: 0,
-            lastResponseTimeMs: 0
-          };
-
-          dispatch(updatePlayerStats({
-            streak: stats.streak,
-            isCorrect: stats.lastAnswerCorrect,
-          }));
-        }
-
-        // 3. Question update sync
+        // 2. Question update sync
         if (status === 'question') {
           const currentIdx = sessionData.currentQuestionIndex;
           if (currentIdx !== undefined && currentIdx >= 0) {
             const activeQuestion = sessionData.questions?.[currentIdx];
             if (activeQuestion) {
               // Trigger state reset only if this is a new question
-              if (currentIdx !== qIndex) {
+              if (currentIdx !== lastProcessedQIndexRef.current) {
+                lastProcessedQIndexRef.current = currentIdx; // Update ref immediately!
                 setQuestion(activeQuestion);
                 setQIndex(currentIdx);
                 dispatch(setCurrentQuestionIndex(currentIdx));
@@ -149,7 +174,7 @@ export const PlayerQuestion: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [pin, qIndex, navigate, dispatch, nickname, localPlayerStats]);
+  }, [pin, navigate, dispatch, nickname]);
 
   // Subscribe to game session answers subcollection to aggregate selection counts in real-time
   useEffect(() => {
