@@ -6,6 +6,7 @@ import { setPin, setQuestions, setStatus, setPlayers } from '../../store/gameSli
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import socketService from '../../services/socket';
 import useSocket from '../../hooks/useSocket';
+import { safeRef, safeGet } from '../../services/firebase';
 import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
 import type { Question } from '../../types/game';
 
@@ -25,11 +26,12 @@ export const HostLobby: React.FC = () => {
 
   const handleCopyPin = () => {
     if (pin) {
-      navigator.clipboard.writeText(pin).then(() => {
+      const shareUrl = `https://valquiz.oqens.me/?pin=${pin}`;
+      navigator.clipboard.writeText(shareUrl).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }).catch((err) => {
-        console.error('Failed to copy PIN to clipboard', err);
+        console.error('Failed to copy share link to clipboard', err);
       });
     }
   };
@@ -81,37 +83,45 @@ export const HostLobby: React.FC = () => {
     });
   };
 
-  // Load local quizzes from localStorage AND server
+  // Load custom quizzes from Firebase Realtime DB AND server API
   useEffect(() => {
-    // 1. Local storage quizzes
-    const raw = localStorage.getItem('valquiz_custom_quizzes');
-    let localList: any[] = [];
-    if (raw) {
+    const loadQuizzes = async () => {
+      let dbList: any[] = [];
       try {
-        localList = JSON.parse(raw);
-      } catch (e) {
-        console.error('Failed to parse custom quizzes', e);
-      }
-    }
-
-    // 2. Fetch server quizzes
-    fetch('/api/quiz')
-      .then(res => res.json())
-      .then(data => {
-        const serverQuizzes = data.quizzes || [];
-        // Combine them, avoiding duplicates
-        const combined = [...localList];
-        serverQuizzes.forEach((sq: any) => {
-          if (!combined.some(cq => cq.id === sq.id)) {
-            combined.push(sq);
+        const snapshot = await safeGet(safeRef('quizzes'));
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          if (val) {
+            dbList = Object.keys(val).map(key => ({
+              ...val[key],
+              id: key
+            }));
           }
+        }
+      } catch (e) {
+        console.error('Failed to load custom quizzes from Firebase:', e);
+      }
+
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+      fetch(`${backendUrl}/api/quiz`)
+        .then(res => res.json())
+        .then(data => {
+          const serverQuizzes = data.quizzes || [];
+          const combined = [...dbList];
+          serverQuizzes.forEach((sq: any) => {
+            if (!combined.some(cq => cq.id === sq.id)) {
+              combined.push(sq);
+            }
+          });
+          setCustomQuizzes(combined);
+        })
+        .catch(err => {
+          console.error('Error fetching server quizzes:', err);
+          setCustomQuizzes(dbList);
         });
-        setCustomQuizzes(combined);
-      })
-      .catch(err => {
-        console.error('Error fetching server quizzes:', err);
-        setCustomQuizzes(localList); // fallback to local only
-      });
+    };
+
+    loadQuizzes();
   }, []);
 
   const handleQuizSelect = (quizId: string) => {
@@ -130,8 +140,9 @@ export const HostLobby: React.FC = () => {
             loadQuestionsToServer(pin, found.questions);
           }
         } else {
-          // Fetch from server details
-          fetch(`/api/quiz/${quizId}`)
+          // Fetch from server details with backend URL prepended
+          const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+          fetch(`${backendUrl}/api/quiz/${quizId}`)
             .then(res => res.json())
             .then(data => {
               if (data.quiz && data.quiz.questions) {
@@ -200,7 +211,7 @@ export const HostLobby: React.FC = () => {
     // Transition host state and view
     setTimeout(() => {
       dispatch(setStatus('question'));
-      navigate('/host/question');
+      navigate('/a/host/question');
     }, 1000);
   };
 
@@ -263,15 +274,15 @@ export const HostLobby: React.FC = () => {
               }}
             >
               <span style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: copied ? '#22c55e' : 'var(--text-secondary)', transition: 'color 0.2s ease' }}>
-                {copied ? 'Copied to Clipboard!' : creating ? 'Creating Game...' : 'Game PIN Code'}
+                {copied ? 'Copied Shareable Link!' : creating ? 'Creating Game...' : 'Click to Copy Share Link'}
               </span>
               <div
                 style={{
                   fontFamily: 'var(--font-title)',
-                  fontSize: '3rem',
+                  fontSize: '3.5rem',
                   fontWeight: 900,
                   letterSpacing: '2px',
-                  margin: '12px 0',
+                  margin: '8px 0 2px 0',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -287,8 +298,11 @@ export const HostLobby: React.FC = () => {
                   )}
                 </div>
               </div>
+              <span style={{ fontSize: '0.8rem', color: 'var(--color-blue)', fontWeight: 700, wordBreak: 'break-all', display: 'block', marginBottom: '8px' }}>
+                valquiz.oqens.me/?pin={pin || '......'}
+              </span>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Share this PIN with players to join
+                Share this link or PIN code with players to join!
               </p>
             </div>
 

@@ -5,6 +5,7 @@ import type { RootState } from '../../store';
 import { resetGame } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import PodiumStage from '../../components/Podium/PodiumStage';
+import { safeRef, safeSet } from '../../services/firebase';
 import { Home, RefreshCw } from 'lucide-react';
 
 interface Particle {
@@ -37,10 +38,34 @@ export const HostPodium: React.FC = () => {
     setParticles(generated);
   }, []);
 
+  useEffect(() => {
+    if (pin && players.length > 0) {
+      const saveSession = async () => {
+        try {
+          const sessionData = {
+            pin,
+            endedAt: Date.now(),
+            players: players.map(p => ({
+              nickname: p.nickname,
+              score: p.score,
+              streak: p.streak,
+              rank: p.rank
+            }))
+          };
+          await safeSet(safeRef(`game_sessions/${pin}`), sessionData);
+          console.log(`Successfully saved game session ${pin} to Firebase.`);
+        } catch (e) {
+          console.error("Failed to save session to Firebase:", e);
+        }
+      };
+      saveSession();
+    }
+  }, [pin, players]);
+
   const activePlayers = players.length > 0 ? players : [
-    { nickname: 'SpeedRunner', score: 2770 },
-    { nickname: 'ValkeyBot_1', score: 2260 },
-    { nickname: 'QuizMaster', score: 950 },
+    { nickname: 'SpeedRunner', score: 2770, streak: 0, rank: 1 },
+    { nickname: 'ValkeyBot_1', score: 2260, streak: 0, rank: 2 },
+    { nickname: 'QuizMaster', score: 950, streak: 0, rank: 3 },
   ];
 
   const handleReset = () => {

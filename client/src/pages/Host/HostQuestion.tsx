@@ -90,7 +90,7 @@ export const HostQuestion: React.FC = () => {
 
   // Listen for game finished
   const handleGameFinished = useCallback(() => {
-    navigate('/host/podium');
+    navigate('/a/host/podium');
   }, [navigate]);
   useSocket('game:finished', handleGameFinished);
 
@@ -114,7 +114,7 @@ export const HostQuestion: React.FC = () => {
   };
 
   const handleNext = () => {
-    navigate('/host/leaderboard');
+    navigate('/a/host/leaderboard');
   };
 
   const getOptionColor = (optId: string) => {

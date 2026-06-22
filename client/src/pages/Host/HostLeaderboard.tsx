@@ -40,7 +40,7 @@ export const HostLeaderboard: React.FC = () => {
   // Listen for game finished event
   const handleGameFinished = useCallback(() => {
     dispatch(setStatus('podium'));
-    navigate('/host/podium');
+    navigate('/a/host/podium');
   }, [dispatch, navigate]);
   useSocket('game:finished', handleGameFinished);
 
@@ -55,7 +55,7 @@ export const HostLeaderboard: React.FC = () => {
       const nextIdx = currentQuestionIndex + 1;
       dispatch(setCurrentQuestionIndex(nextIdx));
       dispatch(setStatus('question'));
-      navigate('/host/question');
+      navigate('/a/host/question');
     }
   };
 

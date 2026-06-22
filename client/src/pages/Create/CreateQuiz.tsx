@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import { ArrowLeft, Save, Plus, Trash, Upload, Image, Settings, X, CheckSquare, Square } from 'lucide-react';
+import { safeRef, safeSet } from '../../services/firebase';
 
 interface LocalQuestion {
   type: 'mcq' | 'match';
@@ -198,7 +199,7 @@ export const CreateQuiz: React.FC = () => {
     }
   };
 
-  const handleSaveQuiz = (e: React.FormEvent) => {
+  const handleSaveQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       alert('Please enter a quiz title');
@@ -240,21 +241,24 @@ export const CreateQuiz: React.FC = () => {
       }
     });
 
+    const quizId = `quiz_${Date.now()}`;
     const newQuiz = {
-      id: `quiz_${Date.now()}`,
+      id: quizId,
       title,
       description,
       questions: parsedQuestions,
     };
 
-    // Store custom quizzes list locally
-    const existing = localStorage.getItem('valquiz_custom_quizzes');
-    const list = existing ? JSON.parse(existing) : [];
-    list.push(newQuiz);
-    localStorage.setItem('valquiz_custom_quizzes', JSON.stringify(list));
+    try {
+      // Save to Firebase Realtime DB
+      await safeSet(safeRef(`quizzes/${quizId}`), newQuiz);
 
-    alert('Quiz created successfully! You can select and host it from your Active Quiz list in the lobby.');
-    navigate('/host');
+      alert('Quiz created successfully! You can select and host it from your Active Quiz list in the lobby.');
+      navigate('/a/host');
+    } catch (err: any) {
+      console.error('Failed to save quiz to Firebase:', err);
+      alert(`Failed to save quiz: ${err.message || err}`);
+    }
   };
 
   return (
@@ -264,7 +268,7 @@ export const CreateQuiz: React.FC = () => {
       <main className="minimalist-main">
         <header className="minimalist-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button onClick={() => navigate('/host')} className="minimalist-button" style={{ padding: '8px' }}>
+            <button onClick={() => navigate('/a/host')} className="minimalist-button" style={{ padding: '8px' }}>
               <ArrowLeft size={16} />
             </button>
             <div>

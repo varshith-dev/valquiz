@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import { ArrowLeft, Sparkles, Check, Edit3, AlertCircle } from 'lucide-react';
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+
 export const AIGenerate: React.FC = () => {
   const navigate = useNavigate();
   
@@ -19,7 +21,7 @@ export const AIGenerate: React.FC = () => {
     setError('');
 
     try {
-      const response = await fetch('/api/quiz/generate', {
+      const response = await fetch(`${BACKEND_URL}/api/quiz/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -59,7 +61,7 @@ export const AIGenerate: React.FC = () => {
     setError('');
 
     try {
-      const response = await fetch('/api/quiz', {
+      const response = await fetch(`${BACKEND_URL}/api/quiz`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -90,7 +92,7 @@ export const AIGenerate: React.FC = () => {
         localList.push(data.quiz);
         localStorage.setItem('valquiz_custom_quizzes', JSON.stringify(localList));
 
-        navigate('/host');
+        navigate('/a/host');
       } else {
         throw new Error(data.error || 'Failed to save quiz to dashboard');
       }
@@ -109,7 +111,7 @@ export const AIGenerate: React.FC = () => {
       <main className="minimalist-main">
         <header className="minimalist-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button onClick={() => navigate('/host')} className="minimalist-button" style={{ padding: '8px' }}>
+            <button onClick={() => navigate('/a/host')} className="minimalist-button" style={{ padding: '8px' }}>
               <ArrowLeft size={16} />
             </button>
             <div>

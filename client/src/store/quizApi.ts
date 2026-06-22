@@ -1,9 +1,11 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { Quiz } from '../types/game';
 
+const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+
 export const quizApi = createApi({
   reducerPath: 'quizApi',
-  baseQuery: fetchBaseQuery({ baseUrl: '/api' }),
+  baseQuery: fetchBaseQuery({ baseUrl: `${backendUrl}/api` }),
   endpoints: (builder) => ({
     generateQuiz: builder.mutation<Quiz, { topic: string; num_questions?: number; difficulty?: string }>({
       query: (body) => ({

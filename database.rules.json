@@ -1,0 +1,20 @@
+{
+  "rules": {
+    "quizzes": {
+      // Anyone can read quizzes (players and host lobby need to fetch questions)
+      ".read": "true",
+      "$quiz_id": {
+        // Only authenticated administrators/hosts can create or modify quizzes
+        ".write": "auth != null"
+      }
+    },
+    "game_sessions": {
+      // Anyone can read game session rankings (players need access to check standings)
+      ".read": "true",
+      "$pin": {
+        // Only authenticated administrators/hosts can write the final podium results
+        ".write": "auth != null"
+      }
+    }
+  }
+}

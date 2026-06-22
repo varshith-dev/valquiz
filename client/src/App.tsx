@@ -60,11 +60,11 @@ export const App: React.FC = () => {
             <Route path="/player/podium" element={<PlayerPodium />} />
 
             {/* Host Flow */}
-            <Route path="/host" element={<HostLobby />} />
-            <Route path="/host/login" element={<HostLogin />} />
-            <Route path="/host/question" element={<HostQuestion />} />
-            <Route path="/host/leaderboard" element={<HostLeaderboard />} />
-            <Route path="/host/podium" element={<HostPodium />} />
+            <Route path="/a/host" element={<HostLobby />} />
+            <Route path="/a/host/login" element={<HostLogin />} />
+            <Route path="/a/host/question" element={<HostQuestion />} />
+            <Route path="/a/host/leaderboard" element={<HostLeaderboard />} />
+            <Route path="/a/host/podium" element={<HostPodium />} />
 
             {/* Creator / Admin Flow */}
             <Route path="/create" element={<CreateQuiz />} />

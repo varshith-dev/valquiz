@@ -12,7 +12,7 @@ export const HostNavigationRail: React.FC = () => {
   const { pin } = useSelector((state: RootState) => state.game);
 
   const menuItems = [
-    { icon: <LayoutDashboard size={22} />, path: '/host', label: 'Dashboard' },
+    { icon: <LayoutDashboard size={22} />, path: '/a/host', label: 'Dashboard' },
     { icon: <PlusCircle size={22} />, path: '/create', label: 'Create' },
     { icon: <History size={22} />, path: '/history', label: 'History' },
     { icon: <Settings size={22} />, path: '/settings', label: 'Settings' },
