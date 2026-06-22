@@ -13,7 +13,7 @@ export const HostLogin: React.FC = () => {
   useEffect(() => {
     // Check if user is already logged in via Firebase Auth listener
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
+      if (user && !user.isAnonymous) {
         navigate('/a/host');
       }
       setSessionChecked(true);

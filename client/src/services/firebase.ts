@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signOut as firebaseSignOut, signInAnonymously } from 'firebase/auth';
+import { getFirestore, doc, setDoc as fsSetDoc, getDoc, getDocs, collection } from 'firebase/firestore';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 
 const config = {
@@ -26,6 +26,32 @@ isSupported().then((supported) => {
 });
 
 // ─── Safe DB Wrapper Functions pointing to Firestore ───
+
+export const cleanUndefined = (obj: any): any => {
+  if (obj === null || obj === undefined) return null;
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanUndefined(item));
+  }
+  if (typeof obj === 'object') {
+    const cleaned: any = {};
+    for (const key in obj) {
+      const val = obj[key];
+      if (val !== undefined) {
+        cleaned[key] = cleanUndefined(val);
+      }
+    }
+    return cleaned;
+  }
+  return obj;
+};
+
+export const setDoc = (ref: any, data: any, options?: any) => {
+  return fsSetDoc(ref, cleanUndefined(data), options);
+};
+
+export const safeSignInAnonymously = () => {
+  return signInAnonymously(auth);
+};
 
 export const safeRef = (path: string) => {
   return path;

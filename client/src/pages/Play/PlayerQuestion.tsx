@@ -5,8 +5,8 @@ import type { RootState } from '../../store';
 import { setHasAnswered, updatePlayerStats } from '../../store/playerSlice';
 import { setCurrentQuestionIndex } from '../../store/gameSlice';
 import AnswerButton from '../../components/Question/AnswerButton';
-import { firestore } from '../../services/firebase';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { firestore, setDoc } from '../../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { HelpCircle, Sparkles, CheckSquare } from 'lucide-react';
 import { useTimer } from '../../hooks/useTimer';
 

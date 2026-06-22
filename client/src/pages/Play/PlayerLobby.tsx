@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
 import { setStatus, setPin } from '../../store/gameSlice';
 import { setNickname } from '../../store/playerSlice';
-import { firestore } from '../../services/firebase';
-import { doc, getDoc, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
+import { firestore, safeSignInAnonymously, setDoc } from '../../services/firebase';
+import { doc, getDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
 import { Check, AlertCircle } from 'lucide-react';
 
 export const PlayerLobby: React.FC = () => {
@@ -21,6 +21,12 @@ export const PlayerLobby: React.FC = () => {
   const [inputName, setInputName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    safeSignInAnonymously().catch((err) => {
+      console.error('Anonymous sign-in failed in lobby:', err);
+    });
+  }, []);
 
   // Players in the lobby (populated by Firestore)
   const [lobbyPlayers, setLobbyPlayers] = useState<string[]>([]);

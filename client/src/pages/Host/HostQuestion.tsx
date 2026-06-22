@@ -6,8 +6,8 @@ import { setHintRevealed, setPlayers, setStatus } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';
-import { firestore } from '../../services/firebase';
-import { collection, onSnapshot, doc, getDocs, setDoc } from 'firebase/firestore';
+import { firestore, setDoc } from '../../services/firebase';
+import { collection, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { Check, BarChart2, Pause, Play, Sparkles } from 'lucide-react';
 
 export const HostQuestion: React.FC = () => {

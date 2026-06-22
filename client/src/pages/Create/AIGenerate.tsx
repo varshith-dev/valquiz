@@ -50,21 +50,45 @@ Return ONLY valid JSON in this exact format (do not wrap it in markdown code blo
   ]
 }`;
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
+    const endpoints = [
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, desc: 'gemini-1.5-flash on v1beta' },
+      { url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, desc: 'gemini-1.5-flash on v1' },
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, desc: 'gemini-2.5-flash on v1beta' },
+      { url: `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, desc: 'gemini-2.5-flash on v1' },
+    ];
+
+    let response: Response | null = null;
+    let lastErrorMsg = '';
+
+    for (const ep of endpoints) {
+      try {
+        console.log(`Attempting AI quiz generation using: ${ep.desc}`);
+        const res = await fetch(ep.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { temperature: 0.8, maxOutputTokens: 8192 },
           }),
+        });
+        
+        if (res.ok) {
+          response = res;
+          break;
+        } else {
+          const errText = await res.text().catch(() => '');
+          lastErrorMsg = `Endpoint ${ep.desc} failed: ${res.status} ${res.statusText}. Response: ${errText}`;
+          console.warn(lastErrorMsg);
         }
-      );
+      } catch (err: any) {
+        lastErrorMsg = `Endpoint ${ep.desc} connection error: ${err.message}`;
+        console.error(lastErrorMsg);
+      }
+    }
 
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+    try {
+      if (!response) {
+        throw new Error(`All Gemini API endpoints failed. Last error: ${lastErrorMsg}`);
       }
 
       const data = await response.json();

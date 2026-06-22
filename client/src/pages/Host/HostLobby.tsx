@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
 import { setPin, setQuestions, setStatus, setPlayers, setCurrentQuestionIndex } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
-import { safeRef, safeGet, auth, firestore } from '../../services/firebase';
-import { collection, onSnapshot, doc, getDoc, setDoc } from 'firebase/firestore';
+import { safeRef, safeGet, auth, firestore, setDoc } from '../../services/firebase';
+import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
 import type { Question } from '../../types/game';
 
@@ -28,7 +28,7 @@ export const HostLobby: React.FC = () => {
   // Authenticate host credentials
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user: any) => {
-      if (user) {
+      if (user && !user.isAnonymous) {
         setAuthChecked(true);
       } else {
         navigate('/a/host/login');

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { setPin } from '../../store/gameSlice';
-import { firestore } from '../../services/firebase';
+import { firestore, safeSignInAnonymously } from '../../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
 export const HomePage: React.FC = () => {
@@ -14,6 +14,12 @@ export const HomePage: React.FC = () => {
   const [gamePin, setGamePin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    safeSignInAnonymously().catch((err) => {
+      console.error('Anonymous sign-in failed:', err);
+    });
+  }, []);
 
   // Auto-fill and submit if PIN is in search parameters
   useEffect(() => {

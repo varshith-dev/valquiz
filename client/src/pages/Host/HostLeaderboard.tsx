@@ -5,8 +5,8 @@ import type { RootState } from '../../store';
 import { setCurrentQuestionIndex, setStatus } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import LeaderboardBar from '../../components/Leaderboard/LeaderboardBar';
-import { firestore } from '../../services/firebase';
-import { doc, setDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
+import { firestore, setDoc } from '../../services/firebase';
+import { doc, deleteDoc, getDocs, collection } from 'firebase/firestore';
 import { Trophy, ArrowRight, Award } from 'lucide-react';
 
 export const HostLeaderboard: React.FC = () => {
