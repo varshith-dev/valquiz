@@ -101,7 +101,7 @@ export const HomePage: React.FC = () => {
             lineHeight: 1.4,
           }}
         >
-          High-performance, real-time Valkey quiz engine.
+          High-performance, real-time Valkey quiz engine. v1.0.1
         </p>
       </div>
 
