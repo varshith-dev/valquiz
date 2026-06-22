@@ -15,6 +15,14 @@ service cloud.firestore {
       allow read: if true;
       // Only authenticated hosts can save the final session results
       allow write: if request.auth != null;
+      
+      // Players need to register nickname and submit answers
+      match /players/{nickname} {
+        allow read, write: if true;
+      }
+      match /answers/{nickname} {
+        allow read, write: if true;
+      }
     }
   }
 }
