@@ -31,13 +31,33 @@ export const HostQuestion: React.FC = () => {
   const timeLimit = question.timeLimit || question.time_limit || 20;
 
   const [answeredCount, setAnsweredCount] = useState(0);
-  const [showResults, setShowResults] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [answerDistribution, setAnswerDistribution] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
+  const [phase, setPhase] = useState<'question' | 'reveal_distribution' | 'reveal_answer'>('question');
+
+  // Sync phase with game session status in Firestore
+  useEffect(() => {
+    if (!pin) return;
+    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.status === 'question') {
+          setPhase('question');
+        } else if (data.status === 'reveal_distribution') {
+          setPhase('reveal_distribution');
+          setIsPaused(true);
+        } else if (data.status === 'reveal_answer') {
+          setPhase('reveal_answer');
+          setIsPaused(true);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [pin]);
 
   // Hook timer countdown (supports pause/resume)
   const secondsLeft = useTimer(timeLimit, () => {
-    handleTimerComplete();
+    handleQuestionEnd();
   }, isPaused);
 
   // Sync with Firestore answers subcollection
@@ -156,9 +176,9 @@ export const HostQuestion: React.FC = () => {
       // Update Redux state
       dispatch(setPlayers(leaderboard));
 
-      // 4. Update session status to trigger player clients navigation
+      // 4. Update session status to trigger player clients navigation/state updates
       await setDoc(doc(firestore, 'game_sessions', pin), {
-        status: 'leaderboard',
+        status: 'reveal_answer',
         leaderboard,
         showResults: true,
         answerDistribution,
@@ -169,14 +189,40 @@ export const HostQuestion: React.FC = () => {
     }
   };
 
-  const handleTimerComplete = async () => {
-    setShowResults(true);
+  const handleQuestionEnd = async () => {
+    setIsPaused(true);
+    setPhase('reveal_distribution');
+
+    if (pin) {
+      try {
+        await setDoc(doc(firestore, 'game_sessions', pin), {
+          status: 'reveal_distribution',
+          showResults: true,
+          answerDistribution,
+        }, { merge: true });
+      } catch (err) {
+        console.error('Failed to end question answering:', err);
+      }
+    }
+  };
+
+  const handleRevealAnswer = async () => {
+    setPhase('reveal_answer');
     await calculateAndPublishScores();
   };
 
-  const handleManualSkip = async () => {
-    setShowResults(true);
-    await calculateAndPublishScores();
+  const handleGoToLeaderboard = async () => {
+    if (pin) {
+      try {
+        await setDoc(doc(firestore, 'game_sessions', pin), {
+          status: 'leaderboard',
+        }, { merge: true });
+      } catch (err) {
+        console.error('Failed to transition to leaderboard:', err);
+      }
+    }
+    dispatch(setStatus('leaderboard'));
+    navigate('/a/host/leaderboard');
   };
 
   const handleRevealHint = async () => {
@@ -192,13 +238,8 @@ export const HostQuestion: React.FC = () => {
     }
   };
 
-  const handleNext = () => {
-    dispatch(setStatus('leaderboard'));
-    navigate('/a/host/leaderboard');
-  };
-
   const getOptionColor = (optId: string) => {
-    if (showResults) {
+    if (phase === 'reveal_answer') {
       return question.correct?.includes(optId) ? 'var(--color-green)' : 'rgba(39, 35, 32, 0.1)';
     }
     switch (optId) {
@@ -224,7 +265,7 @@ export const HostQuestion: React.FC = () => {
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {!showResults && question.hint && (
+            {phase === 'question' && question.hint && (
               <button
                 onClick={handleRevealHint}
                 disabled={isHintRevealed}
@@ -242,29 +283,35 @@ export const HostQuestion: React.FC = () => {
                 {isHintRevealed ? 'Hint Revealed' : 'Reveal Hint'}
               </button>
             )}
-            {!showResults && (
-              <button 
-                onClick={() => setIsPaused(!isPaused)} 
-                className="minimalist-button"
-                style={{
-                  backgroundColor: isPaused ? 'var(--color-yellow)' : 'var(--bg-secondary)',
-                  color: isPaused ? '#272320' : 'var(--text-primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-              >
-                {isPaused ? <Play size={16} fill="currentColor" /> : <Pause size={16} fill="currentColor" />}
-                {isPaused ? 'Resume Timer' : 'Pause Timer'}
+            {phase === 'question' && (
+              <>
+                <button 
+                  onClick={() => setIsPaused(!isPaused)} 
+                  className="minimalist-button"
+                  style={{
+                    backgroundColor: isPaused ? 'var(--color-yellow)' : 'var(--bg-secondary)',
+                    color: isPaused ? '#272320' : 'var(--text-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {isPaused ? <Play size={16} fill="currentColor" /> : <Pause size={16} fill="currentColor" />}
+                  {isPaused ? 'Resume Timer' : 'Pause Timer'}
+                </button>
+                <button onClick={handleQuestionEnd} className="minimalist-button">
+                  End Question
+                </button>
+              </>
+            )}
+            {phase === 'reveal_distribution' && (
+              <button onClick={handleRevealAnswer} className="minimalist-button minimalist-button-primary" style={{ padding: '12px 28px' }}>
+                Reveal Correct Answer
               </button>
             )}
-            {!showResults ? (
-              <button onClick={handleManualSkip} className="minimalist-button">
-                Skip Timer
-              </button>
-            ) : (
-              <button onClick={handleNext} className="minimalist-button minimalist-button-primary" style={{ padding: '12px 28px' }}>
-                View Leaderboard
+            {phase === 'reveal_answer' && (
+              <button onClick={handleGoToLeaderboard} className="minimalist-button minimalist-button-primary" style={{ padding: '12px 28px' }}>
+                Go to Leaderboard
               </button>
             )}
           </div>
@@ -274,7 +321,7 @@ export const HostQuestion: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '32px', flexGrow: 1, alignItems: 'center' }}>
           {/* Timer and score stats column */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px' }}>
-            <CountdownTimer seconds={secondsLeft} totalDuration={timeLimit} />
+            <CountdownTimer seconds={phase === 'question' ? secondsLeft : 0} totalDuration={timeLimit} />
             
             <div 
               style={{ 
@@ -317,7 +364,7 @@ export const HostQuestion: React.FC = () => {
               </div>
             )}
 
-            {showResults && question.type !== 'match' && (
+            {(phase === 'reveal_distribution' || phase === 'reveal_answer') && question.type !== 'match' && (
               <div 
                 className="minimalist-card animate-fade-in-up"
                 style={{
@@ -359,85 +406,87 @@ export const HostQuestion: React.FC = () => {
 
             {/* Answer Display Grid */}
             <div style={{ width: '100%' }}>
-              {question.type === 'match' ? (
-                /* Match the Following results mapping representation */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '8px' }}>Correct Pair Matches:</h3>
-                  {question.pairs?.map((pair: any, pIdx: number) => (
-                    <div 
-                      key={pIdx}
-                      style={{
-                        border: '2px solid var(--text-primary)',
-                        padding: '16px 20px',
-                        backgroundColor: showResults ? 'var(--color-green)' : 'var(--bg-secondary)',
-                        color: showResults ? 'white' : 'var(--text-primary)',
-                        borderRadius: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        fontWeight: 700,
-                        fontSize: '1.1rem',
-                        transition: 'all 0.3s ease'
-                      }}
-                    >
-                      <span>{pair.left}</span>
-                      <span style={{ fontSize: '1.25rem', padding: '0 12px' }}>➔</span>
-                      <span>{pair.right}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                /* MCQ Grid rendering options */
-                <div 
-                  style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '1fr 1fr', 
-                    gridGap: '20px' 
-                  }}
-                >
-                  {(question.options || []).map((opt: any) => {
-                    const optId = opt.id;
-                    const isCorrectAns = question.correct?.includes(optId);
-                    return (
-                      <div
-                        key={optId}
+              {phase !== 'reveal_distribution' && (
+                question.type === 'match' ? (
+                  /* Match the Following results mapping representation */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '8px' }}>Correct Pair Matches:</h3>
+                    {question.pairs?.map((pair: any, pIdx: number) => (
+                      <div 
+                        key={pIdx}
                         style={{
-                          border: '2.5px solid var(--text-primary)',
-                          padding: '20px',
-                          backgroundColor: getOptionColor(optId),
-                          color: (showResults && !isCorrectAns) ? 'var(--text-secondary)' : 'var(--text-primary)',
-                          fontWeight: 700,
-                          fontSize: '1.15rem',
+                          border: '2px solid var(--text-primary)',
+                          padding: '16px 20px',
+                          backgroundColor: phase === 'reveal_answer' ? 'var(--color-green)' : 'var(--bg-secondary)',
+                          color: phase === 'reveal_answer' ? 'white' : 'var(--text-primary)',
+                          borderRadius: '6px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          borderRadius: '6px',
-                          transition: 'all 0.3s ease',
-                          boxShadow: showResults && isCorrectAns ? '0 0 16px rgba(34, 197, 94, 0.3)' : 'none'
+                          fontWeight: 700,
+                          fontSize: '1.1rem',
+                          transition: 'all 0.3s ease'
                         }}
                       >
-                        <span>{optId}. {opt.text}</span>
-                        {showResults && isCorrectAns && (
-                          <div 
-                            style={{
-                              backgroundColor: 'var(--color-green)',
-                              color: 'white',
-                              borderRadius: '50%',
-                              width: '24px',
-                              height: '24px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              border: '2px solid white'
-                            }}
-                          >
-                            <Check size={14} strokeWidth={3} />
-                          </div>
-                        )}
+                        <span>{pair.left}</span>
+                        <span style={{ fontSize: '1.25rem', padding: '0 12px' }}>➔</span>
+                        <span>{pair.right}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* MCQ Grid rendering options */
+                  <div 
+                    style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: '1fr 1fr', 
+                      gridGap: '20px' 
+                    }}
+                  >
+                    {(question.options || []).map((opt: any) => {
+                      const optId = opt.id;
+                      const isCorrectAns = question.correct?.includes(optId);
+                      return (
+                        <div
+                          key={optId}
+                          style={{
+                            border: '2.5px solid var(--text-primary)',
+                            padding: '20px',
+                            backgroundColor: getOptionColor(optId),
+                            color: (phase === 'reveal_answer' && !isCorrectAns) ? 'var(--text-secondary)' : 'var(--text-primary)',
+                            fontWeight: 700,
+                            fontSize: '1.15rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderRadius: '6px',
+                            transition: 'all 0.3s ease',
+                            boxShadow: phase === 'reveal_answer' && isCorrectAns ? '0 0 16px rgba(34, 197, 94, 0.3)' : 'none'
+                          }}
+                        >
+                          <span>{optId}. {opt.text}</span>
+                          {phase === 'reveal_answer' && isCorrectAns && (
+                            <div 
+                              style={{
+                                backgroundColor: 'var(--color-green)',
+                                color: 'white',
+                                borderRadius: '50%',
+                                width: '24px',
+                                height: '24px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                border: '2px solid white'
+                              }}
+                            >
+                              <Check size={14} strokeWidth={3} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
             </div>
           </div>

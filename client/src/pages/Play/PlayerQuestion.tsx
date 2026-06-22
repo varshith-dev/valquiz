@@ -6,9 +6,32 @@ import { setHasAnswered, updatePlayerStats } from '../../store/playerSlice';
 import { setCurrentQuestionIndex } from '../../store/gameSlice';
 import AnswerButton from '../../components/Question/AnswerButton';
 import { firestore, setDoc } from '../../services/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection } from 'firebase/firestore';
 import { HelpCircle, Sparkles, CheckSquare } from 'lucide-react';
 import { useTimer } from '../../hooks/useTimer';
+
+const shapeMap = {
+  A: (
+    <svg className="shape-icon" viewBox="0 0 24 24">
+      <polygon points="12,3 2,21 22,21" />
+    </svg>
+  ), // Triangle
+  B: (
+    <svg className="shape-icon" viewBox="0 0 24 24">
+      <polygon points="12,2 22,12 12,22 2,12" />
+    </svg>
+  ), // Diamond
+  C: (
+    <svg className="shape-icon" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+    </svg>
+  ), // Circle
+  D: (
+    <svg className="shape-icon" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+    </svg>
+  ), // Square
+};
 
 export const PlayerQuestion: React.FC = () => {
   const navigate = useNavigate();
@@ -34,6 +57,11 @@ export const PlayerQuestion: React.FC = () => {
   const [showHintPopup, setShowHintPopup] = useState(false);
   const [isHintUnlocked, setIsHintUnlocked] = useState(false);
 
+  // Custom states for reveal/distribution flow
+  const [sessionStatus, setSessionStatus] = useState<string>('question');
+  const [totalAnswersCount, setTotalAnswersCount] = useState(0);
+  const [answerStats, setAnswerStats] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
+
   // Keep track of player stats locally to prevent race conditions during transitions
   const [localPlayerStats, setLocalPlayerStats] = useState<any>(null);
 
@@ -57,9 +85,11 @@ export const PlayerQuestion: React.FC = () => {
     const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
       if (docSnap.exists()) {
         const sessionData = docSnap.data();
+        const status = sessionData.status || 'question';
+        setSessionStatus(status);
 
         // 1. Check for game finished / podium transition
-        if (sessionData.status === 'finished' || sessionData.status === 'podium') {
+        if (status === 'finished' || status === 'podium') {
           // If we have final leaderboard, update stats
           if (sessionData.leaderboard && nickname) {
             const myEntry = sessionData.leaderboard.find((entry: any) => entry.nickname === nickname);
@@ -74,10 +104,8 @@ export const PlayerQuestion: React.FC = () => {
           return;
         }
 
-        // 2. Transition to results/feedback screen
-        if (sessionData.status === 'leaderboard') {
-          const currentIdx = sessionData.currentQuestionIndex || 0;
-          const activeQuestion = sessionData.questions?.[currentIdx];
+        // 2. Handle leaderboard/reveal stats locally
+        if (status === 'leaderboard' || status === 'reveal_answer') {
           const stats = localPlayerStats || {
             streak: 0,
             lastAnswerCorrect: false,
@@ -89,22 +117,10 @@ export const PlayerQuestion: React.FC = () => {
             streak: stats.streak,
             isCorrect: stats.lastAnswerCorrect,
           }));
-
-          // Navigate to feedback page
-          navigate('/player/feedback', {
-            state: {
-              correct: stats.lastAnswerCorrect,
-              correctAnswer: activeQuestion?.correct || [],
-              pointsEarned: stats.lastAnswerPoints || 0,
-              streak: stats.streak || 0,
-              responseTimeMs: stats.lastResponseTimeMs || 0,
-            }
-          });
-          return;
         }
 
         // 3. Question update sync
-        if (sessionData.status === 'question') {
+        if (status === 'question') {
           const currentIdx = sessionData.currentQuestionIndex;
           if (currentIdx !== undefined && currentIdx >= 0) {
             const activeQuestion = sessionData.questions?.[currentIdx];
@@ -133,7 +149,31 @@ export const PlayerQuestion: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [pin, qIndex, navigate, dispatch, nickname, localPlayerStats, question]);
+  }, [pin, qIndex, navigate, dispatch, nickname, localPlayerStats]);
+
+  // Subscribe to game session answers subcollection to aggregate selection counts in real-time
+  useEffect(() => {
+    if (!pin) return;
+
+    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', pin, 'answers'), (snapshot) => {
+      setTotalAnswersCount(snapshot.size);
+
+      const stats: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.answerIds && Array.isArray(data.answerIds)) {
+          data.answerIds.forEach((ansId: string) => {
+            if (stats[ansId] !== undefined) {
+              stats[ansId]++;
+            }
+          });
+        }
+      });
+      setAnswerStats(stats);
+    });
+
+    return () => unsubscribe();
+  }, [pin]);
 
   // Auto submit when time is up
   useEffect(() => {
@@ -278,24 +318,7 @@ export const PlayerQuestion: React.FC = () => {
 
       {/* Main Answering Area */}
       <div style={{ width: '100%', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', margin: '10px 0' }}>
-        {hasAnswered ? (
-          /* Locked State */
-          <div 
-            className="brutalist-card" 
-            style={{ 
-              textAlign: 'center', 
-              backgroundColor: 'var(--color-brand)', 
-              color: 'white',
-              padding: '40px 20px',
-              alignSelf: 'center',
-              width: '100%',
-              maxWidth: '400px'
-            }}
-          >
-            <h2 style={{ fontSize: '2rem', textTransform: 'uppercase', marginBottom: '8px' }}>Answer Locked!</h2>
-            <p style={{ fontWeight: 600 }}>Waiting for results...</p>
-          </div>
-        ) : question.type === 'match' ? (
+        {question.type === 'match' ? (
           /* Match Answering Layout */
           <div 
             className="brutalist-card animate-fade-in-up"
@@ -320,6 +343,7 @@ export const PlayerQuestion: React.FC = () => {
                 <div key={pIdx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <span style={{ fontWeight: 800, fontSize: '0.85rem' }}>{pair.left}</span>
                   <select
+                    disabled={hasAnswered}
                     value={matches[pair.left] || ''}
                     onChange={(e) => handleMatchSelect(pair.left, e.target.value)}
                     style={{
@@ -330,7 +354,7 @@ export const PlayerQuestion: React.FC = () => {
                       color: 'var(--text-primary)',
                       fontFamily: 'var(--font-body)',
                       fontWeight: 700,
-                      cursor: 'pointer',
+                      cursor: hasAnswered ? 'default' : 'pointer',
                       outline: 'none',
                       boxShadow: '2px 2px 0 var(--text-primary)'
                     }}
@@ -348,11 +372,11 @@ export const PlayerQuestion: React.FC = () => {
 
             <button
               onClick={handleMatchSubmit}
-              disabled={Object.keys(matches).filter((k) => matches[k]).length < (question.pairs?.length || 0)}
+              disabled={hasAnswered || Object.keys(matches).filter((k) => matches[k]).length < (question.pairs?.length || 0)}
               className="brutalist-button brutalist-button-green"
               style={{ marginTop: '12px', fontSize: '1rem', padding: '12px' }}
             >
-              Submit Matches
+              {hasAnswered ? 'Matches Submitted' : 'Submit Matches'}
             </button>
           </div>
         ) : isMultiChoice ? (
@@ -379,25 +403,56 @@ export const PlayerQuestion: React.FC = () => {
               {question.options.map((opt: any) => {
                 const optId = opt.id;
                 const isChecked = selectedMultiOptions.includes(optId);
+                const isCorrect = question.correct?.includes(optId);
+                const showResults = sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard';
+
+                let bg = isChecked ? 'var(--color-yellow)' : 'var(--bg-secondary)';
+                let color = 'var(--text-primary)';
+                let borderStyle = '2px solid var(--text-primary)';
+                let filter = 'none';
+                let animationClass = '';
+
+                if (showResults) {
+                  if (isCorrect) {
+                    bg = 'var(--color-green)';
+                    color = 'white';
+                    borderStyle = '4px solid';
+                    animationClass = 'animate-border-reveal-green';
+                  } else if (isChecked && !isCorrect) {
+                    bg = 'var(--color-red)';
+                    color = 'white';
+                    borderStyle = '4px solid var(--color-red)';
+                  } else {
+                    filter = 'grayscale(1) opacity(0.35)';
+                  }
+                } else if (hasAnswered) {
+                  if (!isChecked) {
+                    filter = 'grayscale(1) opacity(0.35)';
+                  }
+                }
+
                 return (
                   <button
                     key={optId}
                     onClick={() => handleMultiToggle(optId)}
+                    disabled={hasAnswered || showResults}
+                    className={animationClass}
                     style={{
                       width: '100%',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '12px',
                       padding: '14px 18px',
-                      border: '2px solid var(--text-primary)',
+                      border: borderStyle,
                       borderRadius: '6px',
-                      backgroundColor: isChecked ? 'var(--color-yellow)' : 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
+                      backgroundColor: bg,
+                      color: color,
                       fontWeight: 800,
                       fontSize: '1rem',
-                      cursor: 'pointer',
+                      cursor: (hasAnswered || showResults) ? 'default' : 'pointer',
                       textAlign: 'left',
                       boxShadow: '2px 2px 0 var(--text-primary)',
+                      filter: filter,
                       transition: 'all 0.15s ease'
                     }}
                   >
@@ -410,47 +465,221 @@ export const PlayerQuestion: React.FC = () => {
 
             <button
               onClick={handleMultiSubmit}
-              disabled={selectedMultiOptions.length === 0}
+              disabled={hasAnswered || selectedMultiOptions.length === 0}
               className="brutalist-button brutalist-button-blue"
               style={{ marginTop: '12px', fontSize: '1rem', padding: '12px' }}
             >
-              Submit Answers
+              {hasAnswered ? 'Answers Submitted' : 'Submit Answers'}
             </button>
           </div>
         ) : (
-          /* MCQ Option Buttons Layout */
-          <div 
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gridGap: '16px',
-              width: '100%',
-              maxHeight: '440px',
-              flexGrow: 1
-            }}
-          >
-            {question.options.map((opt: any) => {
-              const optId = opt.id as 'A' | 'B' | 'C' | 'D';
-              return (
-                <AnswerButton 
-                  key={optId}
-                  optionId={optId} 
-                  text={`${optId}. ${opt.text}`} 
-                  onClick={() => handleSingleAnswerSubmit(optId)} 
-                  disabled={hasAnswered}
-                  isSelected={selectedOption === optId}
-                />
-              );
-            })}
-          </div>
+          /* MCQ Single Choice Layout */
+          (hasAnswered || sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard' ? (
+            /* Transformed 1x Single Column Progress Bars Layout */
+            <div 
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+                width: '100%',
+                margin: '0 auto',
+                maxWidth: '480px'
+              }}
+            >
+              {question.options.map((opt: any) => {
+                const optId = opt.id as 'A' | 'B' | 'C' | 'D';
+                const isSelected = selectedOption === optId;
+                const isCorrectAns = question.correct?.includes(optId);
+                const showResults = sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard';
+
+                const count = answerStats[optId] || 0;
+                const total = totalAnswersCount || 1;
+                const pct = Math.round((count / total) * 100);
+
+                let isMasked = false;
+                let fillColor = '';
+                let colorOverride: 'green' | 'red' | null = null;
+                let revealBorder = false;
+
+                switch (optId) {
+                  case 'A': fillColor = 'var(--color-red)'; break;
+                  case 'B': fillColor = 'var(--color-blue)'; break;
+                  case 'C': fillColor = 'var(--color-yellow)'; break;
+                  case 'D': fillColor = 'var(--color-green)'; break;
+                }
+
+                if (showResults) {
+                  if (isCorrectAns) {
+                    fillColor = 'var(--color-green)';
+                    colorOverride = 'green';
+                    revealBorder = true;
+                  } else if (isSelected && !isCorrectAns) {
+                    fillColor = 'var(--color-red)';
+                    colorOverride = 'red';
+                  } else {
+                    isMasked = true;
+                  }
+                } else {
+                  // Answering locked phase
+                  if (!isSelected) {
+                    isMasked = true;
+                  }
+                }
+
+                const borderStyle = revealBorder 
+                  ? '4px solid' 
+                  : (colorOverride === 'red' ? '4px solid var(--color-red)' : 'var(--brutalist-border-width) solid var(--text-primary)');
+
+                // Check text color contrast
+                const textColor = (isMasked)
+                  ? 'var(--text-primary)'
+                  : (fillColor === 'var(--color-red)' || fillColor === 'var(--color-blue)' || fillColor === 'var(--color-green)' || colorOverride === 'green' || colorOverride === 'red') 
+                    ? 'white' 
+                    : 'var(--text-primary)';
+
+                return (
+                  <div
+                    key={optId}
+                    className={`brutalist-card ${revealBorder ? 'animate-border-reveal-green' : ''}`}
+                    style={{
+                      position: 'relative',
+                      width: '100%',
+                      minHeight: '76px',
+                      padding: '16px 20px',
+                      margin: 0,
+                      backgroundColor: 'var(--bg-secondary)',
+                      border: borderStyle,
+                      boxShadow: revealBorder ? undefined : '4px 4px 0px var(--text-primary)',
+                      transform: isSelected ? 'translate(2px, 2px)' : undefined,
+                      overflow: 'hidden',
+                      display: 'flex',
+                      alignItems: 'center',
+                      filter: isMasked ? 'grayscale(1) opacity(0.35)' : 'none',
+                      transition: 'all 0.3s ease',
+                      cursor: 'default',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    {/* Progress Fill */}
+                    <div 
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        width: `${pct}%`,
+                        backgroundColor: fillColor,
+                        transition: 'width 1s cubic-bezier(0.16, 1, 0.3, 1)',
+                        zIndex: 1,
+                        opacity: 0.85
+                      }}
+                    />
+                    
+                    {/* Content Overlay */}
+                    <div 
+                      style={{
+                        position: 'relative',
+                        zIndex: 2,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        color: textColor
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ flexShrink: 0, color: 'currentColor' }}>
+                          {shapeMap[optId]}
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: '1.05rem', wordBreak: 'break-word' }}>
+                          {optId}. {opt.text}
+                        </div>
+                      </div>
+                      
+                      <div style={{ fontWeight: 950, fontSize: '1.25rem', paddingLeft: '16px' }}>
+                        {pct}%
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* MCQ Option Buttons Layout (Standard 2x2 Grid) */
+            <div 
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gridGap: '16px',
+                width: '100%',
+                maxHeight: '440px',
+                flexGrow: 1
+              }}
+            >
+              {question.options.map((opt: any) => {
+                const optId = opt.id as 'A' | 'B' | 'C' | 'D';
+                return (
+                  <AnswerButton 
+                    key={optId}
+                    optionId={optId} 
+                    text={`${optId}. ${opt.text}`} 
+                    onClick={() => handleSingleAnswerSubmit(optId)} 
+                    disabled={hasAnswered}
+                    isSelected={selectedOption === optId}
+                  />
+                );
+              })}
+            </div>
+          ))
         )}
       </div>
 
-      {/* Hint Button */}
-      {question.hint && !hasAnswered && (
+      {/* Answer Locked Notification (Waiting Phase) */}
+      {hasAnswered && sessionStatus === 'question' && (
+        <div style={{ textAlign: 'center', fontWeight: 750, fontSize: '1.1rem', color: 'var(--color-brand)', marginTop: '8px' }}>
+          🔒 Answer locked. Waiting for host...
+        </div>
+      )}
+
+      {/* Stats Feedback Banner */}
+      {(sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard') && (
+        <div 
+          className="brutalist-card animate-pop-in"
+          style={{
+            width: '100%',
+            maxWidth: '440px',
+            backgroundColor: localPlayerStats?.lastAnswerCorrect ? 'var(--color-green)' : 'var(--color-red)',
+            color: 'white',
+            textAlign: 'center',
+            padding: '16px 20px',
+            marginTop: '16px',
+            boxShadow: 'var(--brutalist-shadow-lg)',
+            alignSelf: 'center'
+          }}
+        >
+          <h2 style={{ fontSize: '1.5rem', textTransform: 'uppercase', marginBottom: '8px' }}>
+            {localPlayerStats?.lastAnswerCorrect ? '✓ Correct!' : '✗ Incorrect'}
+          </h2>
+          <div style={{ fontWeight: 800, fontSize: '1rem', marginBottom: '12px' }}>
+            {localPlayerStats?.lastAnswerCorrect ? `+${localPlayerStats?.lastAnswerPoints || 0} Points` : 'Try again next time!'}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-around', borderTop: '2px solid white', paddingTop: '10px', fontSize: '0.85rem', fontWeight: 800 }}>
+            <div>Streak: {localPlayerStats?.streak || 0} 🔥</div>
+            <div>Total: {localPlayerStats?.score || 0} pts 🏆</div>
+          </div>
+        </div>
+      )}
+
+      {(sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard') && (
+        <div style={{ marginTop: '12px', textAlign: 'center', fontWeight: 600, fontSize: '0.9rem', opacity: 0.8 }}>
+          Waiting for next question from host...
+        </div>
+      )}
+
+      {/* Hint Button (Only shown when unlocked; blank if locked) */}
+      {question.hint && isHintUnlocked && !hasAnswered && (
         <button
-          onClick={() => isHintUnlocked && setShowHintPopup(true)}
-          disabled={!isHintUnlocked}
+          onClick={() => setShowHintPopup(true)}
           className="brutalist-button"
           style={{
             width: '100%',
@@ -460,19 +689,18 @@ export const PlayerQuestion: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             gap: '8px',
-            backgroundColor: isHintUnlocked ? 'var(--color-yellow)' : 'var(--bg-secondary)',
-            color: isHintUnlocked ? '#272320' : 'var(--text-secondary)',
-            cursor: isHintUnlocked ? 'pointer' : 'not-allowed',
-            opacity: isHintUnlocked ? 1 : 0.7,
-            borderStyle: isHintUnlocked ? 'solid' : 'dashed',
+            backgroundColor: 'var(--color-yellow)',
+            color: '#272320',
+            cursor: 'pointer',
+            borderStyle: 'solid',
             borderWidth: '2px',
             borderColor: 'var(--text-primary)',
-            boxShadow: isHintUnlocked ? 'var(--brutalist-shadow)' : 'none',
+            boxShadow: 'var(--brutalist-shadow)',
             transition: 'all 0.25s ease'
           }}
         >
           <Sparkles size={16} /> 
-          {isHintUnlocked ? 'Need a Hint? (Unlocked)' : 'Hint Locked by Host'}
+          Need a Hint? (Unlocked)
         </button>
       )}
 

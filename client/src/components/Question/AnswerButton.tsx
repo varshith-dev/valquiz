@@ -8,6 +8,9 @@ interface AnswerButtonProps {
   isSelected?: boolean;
   showCorrectness?: boolean;
   isCorrect?: boolean;
+  isMasked?: boolean;
+  colorOverride?: 'green' | 'red' | null;
+  revealBorder?: boolean;
 }
 
 const shapeMap = {
@@ -41,6 +44,9 @@ export const AnswerButton: React.FC<AnswerButtonProps> = ({
   isSelected = false,
   showCorrectness = false,
   isCorrect = false,
+  isMasked = false,
+  colorOverride = null,
+  revealBorder = false,
 }) => {
   const getBrutalistButtonClass = () => {
     switch (optionId) {
@@ -62,21 +68,48 @@ export const AnswerButton: React.FC<AnswerButtonProps> = ({
     return 'var(--brutalist-border-width) solid var(--text-primary)';
   };
 
+  const getInlineStyles = () => {
+    const styles: React.CSSProperties = {
+      textAlign: 'left',
+      justifyContent: 'flex-start',
+      height: '100%',
+      minHeight: '76px',
+      padding: '16px 20px',
+      transition: 'filter 0.3s ease, background-color 0.3s ease, color 0.3s ease',
+    };
+
+    if (isMasked) {
+      styles.filter = 'grayscale(1) opacity(0.35)';
+    }
+
+    if (colorOverride === 'green') {
+      styles.backgroundColor = 'var(--color-green)';
+      styles.color = 'white';
+    } else if (colorOverride === 'red') {
+      styles.backgroundColor = 'var(--color-red)';
+      styles.color = 'white';
+    }
+
+    if (revealBorder) {
+      styles.border = '4px solid';
+      styles.transform = 'translate(2px, 2px)';
+    } else {
+      styles.border = getBorderColor();
+      if (isSelected) {
+        styles.transform = 'translate(2px, 2px)';
+        styles.boxShadow = '2px 2px 0px var(--text-primary)';
+      }
+    }
+
+    return styles;
+  };
+
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`brutalist-button ${getBrutalistButtonClass()}`}
-      style={{
-        border: getBorderColor(),
-        transform: isSelected ? 'translate(2px, 2px)' : undefined,
-        boxShadow: isSelected ? '2px 2px 0px var(--text-primary)' : undefined,
-        textAlign: 'left',
-        justifyContent: 'flex-start',
-        height: '100%',
-        minHeight: '76px',
-        padding: '16px 20px',
-      }}
+      className={`brutalist-button ${getBrutalistButtonClass()} ${revealBorder ? 'animate-border-reveal-green' : ''}`}
+      style={getInlineStyles()}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
         {/* Geometric shape for accessibility */}
