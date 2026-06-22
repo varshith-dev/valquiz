@@ -6,7 +6,7 @@ import { setPin, setQuestions, setStatus, setPlayers, setCurrentQuestionIndex } 
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import { safeRef, safeGet, auth, firestore, setDoc } from '../../services/firebase';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
+import { Users, Play, AlertCircle, Copy, Check, RefreshCw } from 'lucide-react';
 import type { Question } from '../../types/game';
 
 export const HostLobby: React.FC = () => {
@@ -105,6 +105,62 @@ export const HostLobby: React.FC = () => {
       initGame();
     }
   }, [dispatch, pin, creating, authChecked]);
+
+  const handleRegeneratePin = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (creating) return;
+    setCreating(true);
+    setError('');
+
+    try {
+      let generatedPin = '';
+      let attempts = 0;
+      let unique = false;
+      while (attempts < 50 && !unique) {
+        generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+        const docSnap = await getDoc(doc(firestore, 'game_sessions', generatedPin));
+        if (!docSnap.exists()) {
+          unique = true;
+        }
+        attempts++;
+      }
+
+      if (!unique) {
+        throw new Error('Failed to generate a unique session PIN.');
+      }
+
+      let selectedQuestions = mockQuestions;
+      if (selectedQuizId !== 'default') {
+        const found = customQuizzes.find((q) => q.id === selectedQuizId);
+        if (found && found.questions) {
+          selectedQuestions = found.questions;
+        }
+      }
+
+      const newSession = {
+        pin: generatedPin,
+        status: 'lobby',
+        currentQuestionIndex: -1,
+        createdAt: Date.now(),
+        mode: 'classic',
+        selectedQuizId: selectedQuizId,
+        questions: selectedQuestions,
+        totalQuestions: selectedQuestions.length,
+        showResults: false,
+        hostId: auth.currentUser?.uid || 'HOST'
+      };
+
+      await setDoc(doc(firestore, 'game_sessions', generatedPin), newSession);
+
+      dispatch(setPin(generatedPin));
+      sessionStorage.setItem('valquiz_pin', generatedPin);
+      setCreating(false);
+    } catch (err: any) {
+      console.error('Error regenerating session:', err);
+      setError(err.message || 'Could not regenerate game session PIN.');
+      setCreating(false);
+    }
+  };
 
   // Load custom quizzes from Firestore
   useEffect(() => {
@@ -298,6 +354,29 @@ export const HostLobby: React.FC = () => {
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
                 Share this link or PIN code with players to join!
               </p>
+              
+              <button
+                onClick={handleRegeneratePin}
+                disabled={creating}
+                className="minimalist-button"
+                style={{
+                  marginTop: '16px',
+                  width: '100%',
+                  fontSize: '0.85rem',
+                  padding: '8px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  borderRadius: '4px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: '1.5px solid var(--text-primary)',
+                }}
+              >
+                <RefreshCw size={14} className={creating ? 'animate-spin' : ''} />
+                {creating ? 'Generating...' : 'Regenerate Code'}
+              </button>
             </div>
 
             {/* Quiz Selector Card */}
