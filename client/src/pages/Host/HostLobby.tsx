@@ -6,7 +6,7 @@ import { setPin, setQuestions, setStatus, setPlayers } from '../../store/gameSli
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import socketService from '../../services/socket';
 import useSocket from '../../hooks/useSocket';
-import { safeRef, safeGet } from '../../services/firebase';
+import { safeRef, safeGet, auth } from '../../services/firebase';
 import { Users, Play, AlertCircle, Copy, Check } from 'lucide-react';
 import type { Question } from '../../types/game';
 
@@ -23,6 +23,31 @@ export const HostLobby: React.FC = () => {
   const [selectedQuizId, setSelectedQuizId] = useState<string>('default');
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
+  
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Authenticate host credentials
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user: any) => {
+      if (user) {
+        setAuthChecked(true);
+      } else {
+        // Enforce 14-day mock session check
+        const stored = localStorage.getItem('valquiz_mock_user');
+        const loginTime = localStorage.getItem('valquiz_mock_login_time');
+        if (stored && loginTime) {
+          const elapsed = Date.now() - parseInt(loginTime, 10);
+          if (elapsed < 14 * 24 * 60 * 60 * 1000) {
+            setAuthChecked(true);
+            return;
+          }
+        }
+        // Redirect to login if not authenticated
+        navigate('/a/host/login');
+      }
+    });
+    return () => unsubscribe();
+  }, [navigate]);
 
   const handleCopyPin = () => {
     if (pin) {
@@ -36,13 +61,18 @@ export const HostLobby: React.FC = () => {
     }
   };
 
-  // Connect socket and create game on mount
+  // Connect socket and create game on mount once authenticated
   useEffect(() => {
+    if (!authChecked) return;
+
     if (!pin && !creating) {
       setCreating(true);
 
       // Connect to socket server
       socketService.connect();
+
+      let attempts = 0;
+      const maxAttempts = 15; // ~4.5 seconds
 
       // Wait for connection then create game
       const tryCreate = () => {
@@ -62,6 +92,12 @@ export const HostLobby: React.FC = () => {
             setCreating(false);
           });
         } else {
+          attempts++;
+          if (attempts >= maxAttempts) {
+            setError('Could not connect to game server. Please make sure the backend server is running and accessible.');
+            setCreating(false);
+            return;
+          }
           // Wait and retry
           setTimeout(tryCreate, 300);
         }
@@ -70,7 +106,7 @@ export const HostLobby: React.FC = () => {
       // Small delay to let socket connect
       setTimeout(tryCreate, 500);
     }
-  }, [dispatch, pin, creating]);
+  }, [dispatch, pin, creating, authChecked]);
 
   const loadQuestionsToServer = (gamePin: string, qs: Question[]) => {
     socketService.emit('host:load-questions', { pin: gamePin, questions: qs }, (res: any) => {
@@ -214,6 +250,16 @@ export const HostLobby: React.FC = () => {
       navigate('/a/host/question');
     }, 1000);
   };
+
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-primary)' }}>
+        <p style={{ fontFamily: 'var(--font-title)', fontWeight: 800, fontSize: '1.25rem', color: 'var(--text-secondary)' }}>
+          Verifying credentials...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="minimalist-container">
