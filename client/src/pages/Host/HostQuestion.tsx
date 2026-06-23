@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setHintRevealed, setPlayers, setStatus, setQuestions, setCurrentQuestionIndex } from '../../store/gameSlice';
+import { setHintRevealed, setPlayers, setStatus } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';

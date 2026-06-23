@@ -5,7 +5,7 @@ import type { RootState } from '../../store';
 import { setPin, setQuestions, setStatus, setPlayers, setCurrentQuestionIndex } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import { safeRef, safeGet, auth, firestore, setDoc } from '../../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
 import socketService from '../../services/socket';
 import { Users, Play, AlertCircle, Copy, Check, RefreshCw } from 'lucide-react';
 import type { Question } from '../../types/game';
