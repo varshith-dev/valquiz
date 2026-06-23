@@ -9,7 +9,14 @@ class SocketService {
   constructor() {
     // In dev, Vite proxy handles /socket.io → localhost:3000
     // In production, connect to the same origin or explicit VITE_BACKEND_URL
-    this.backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+    let url = import.meta.env.VITE_BACKEND_URL || '';
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      if (url.includes('localhost') || url.includes('127.0.0.1')) {
+        console.warn(`Ignoring localhost backend URL in production: ${url}`);
+        url = '';
+      }
+    }
+    this.backendUrl = url;
   }
 
   public connect() {

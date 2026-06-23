@@ -1,7 +1,12 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { Quiz } from '../types/game';
 
-const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+let backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  if (backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1')) {
+    backendUrl = '';
+  }
+}
 
 export const quizApi = createApi({
   reducerPath: 'quizApi',
