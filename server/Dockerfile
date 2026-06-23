@@ -8,11 +8,12 @@ RUN chown -R node:node /app
 USER node
 
 COPY --chown=node:node package.json package-lock.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 COPY --chown=node:node . .
 
 RUN npm run build
+RUN npm prune --production
 
 ENV PORT=7860
 EXPOSE 7860
