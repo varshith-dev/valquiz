@@ -114,6 +114,6 @@ export interface ClientToServerEvents {
   'host:load-questions': (data: { pin: string; questions: Question[] }, callback: (res: { success: boolean; error?: string }) => void) => void;
   'powerup:use': (data: { pin: string; type: PowerUpType; target?: string }) => void;
   'ping': (data: { timestamp: number }) => void;
-  'game:request-sync': (data: { pin: string }) => void;
+  'game:request-sync': (data: { pin: string; nickname?: string; role?: string }) => void;
 }
 

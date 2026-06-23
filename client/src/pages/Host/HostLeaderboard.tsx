@@ -21,6 +21,25 @@ export const HostLeaderboard: React.FC = () => {
 
   const isLastQuestion = currentQuestionIndex >= questions.length - 1;
 
+  React.useEffect(() => {
+    if (!pin) return;
+    socketService.connect();
+
+    const handleConnect = () => {
+      socketService.emit('game:request-sync', { pin, role: 'host' });
+    };
+
+    socketService.on('connect', handleConnect);
+
+    if (socketService.isConnected()) {
+      socketService.emit('game:request-sync', { pin, role: 'host' });
+    }
+
+    return () => {
+      socketService.off('connect', handleConnect);
+    };
+  }, [pin]);
+
   const handleNextStep = () => {
     if (!pin) return;
 

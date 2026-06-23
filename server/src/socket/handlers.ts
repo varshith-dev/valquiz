@@ -457,9 +457,28 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
     // ─── Game State Sync (for reconnection) ──────────────
     socket.on('game:request-sync', async (data) => {
       try {
-        const { pin } = data;
-        const session = socketMap.get(socket.id);
-        if (!session) return;
+        const { pin, nickname, role } = data;
+        let session = socketMap.get(socket.id);
+        if (!session) {
+          session = { role: (role === 'host' ? 'host' : 'player') };
+          socketMap.set(socket.id, session);
+        }
+        const activeSession = session;
+        if (role === 'host' || role === 'player') activeSession.role = role;
+        if (pin) activeSession.pin = pin;
+        if (nickname) activeSession.nickname = nickname;
+
+        if (pin) {
+          socket.join(`game:${pin}`);
+          if (activeSession.role === 'host') {
+            socket.join(`host:${pin}`);
+            console.log(`🔌 Host re-associated with socket ${socket.id} for game ${pin}`);
+          } else if (activeSession.role === 'player' && nickname) {
+            socket.join(`player:${pin}:${nickname}`);
+            await GameManager.updatePlayerSocket(pin, nickname, socket.id);
+            console.log(`🔌 Player ${nickname} re-associated with socket ${socket.id} for game ${pin}`);
+          }
+        }
 
         const game = await GameManager.getGame(pin);
         if (!game) return;
@@ -473,12 +492,24 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
 
         // Check if this player has already answered
         let hasAnswered = false;
-        if (session.nickname) {
+        if (activeSession.nickname) {
           const answers = await GameManager.getAnswers(pin, qIndex);
-          hasAnswered = !!answers[session.nickname];
+          hasAnswered = !!answers[activeSession.nickname];
         }
 
         const answerCount = await GameManager.getAnswerCount(pin, qIndex);
+
+        // Calculate secondsLeft if game is in playing status
+        let secondsLeft: number | undefined = undefined;
+        if (game.status === 'playing' && question) {
+          const v = await (await import('../config/env.js')).getValkey();
+          const questionStartTimeRaw = await v.hGet(`game:${pin}:config`, 'questionStartTime');
+          const questionStartTime = questionStartTimeRaw ? parseInt(questionStartTimeRaw, 10) : game.createdAt;
+          const limit = question.timeLimit || (question as any).time_limit || 20;
+          const elapsedMs = Date.now() - questionStartTime;
+          const elapsedSeconds = Math.floor(elapsedMs / 1000);
+          secondsLeft = Math.max(0, limit - elapsedSeconds);
+        }
 
         socket.emit('game:state-sync', {
           pin,
@@ -487,7 +518,7 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
           question: question ? {
             text: question.text,
             options: question.options,
-            timeLimit: question.timeLimit,
+            timeLimit: secondsLeft !== undefined ? secondsLeft : (question.timeLimit || 20),
             type: (question as any).type,
             hint: (question as any).hint,
             media_url: (question as any).media_url,
@@ -573,6 +604,14 @@ async function sendQuestion(
 
   const question = questions[qIndex];
   if (!question) return;
+
+  // Store the current question's start time in Valkey config
+  try {
+    const v = await (await import('../config/env.js')).getValkey();
+    await v.hSet(`game:${pin}:config`, 'questionStartTime', Date.now().toString());
+  } catch (err) {
+    console.error('Failed to set questionStartTime in Valkey:', err);
+  }
 
   // Send to players (without correct answer)
   io.to(`game:${pin}`).emit('question:new', {

@@ -99,19 +99,27 @@ export const PlayerLobby: React.FC = () => {
       }
     };
 
+    const handleConnect = () => {
+      socketService.emit('game:request-sync', { pin: activePin, nickname, role: 'player' });
+    };
+
     socketService.on('player:joined', handleJoined);
     socketService.on('player:left', handleLeft);
     socketService.on('game:start', handleStart);
     socketService.on('game:state-sync', handleStateSync);
+    socketService.on('connect', handleConnect);
 
     // Request initial sync to sync state
-    socketService.emit('game:request-sync', { pin: activePin });
+    if (socketService.isConnected()) {
+      socketService.emit('game:request-sync', { pin: activePin, nickname, role: 'player' });
+    }
 
     return () => {
       socketService.off('player:joined');
       socketService.off('player:left');
       socketService.off('game:start');
       socketService.off('game:state-sync');
+      socketService.off('connect', handleConnect);
     };
   }, [pin, nickname, dispatch, navigate]);
 

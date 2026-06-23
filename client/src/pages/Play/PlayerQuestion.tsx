@@ -157,6 +157,45 @@ export const PlayerQuestion: React.FC = () => {
       setSessionStatus('leaderboard');
     };
 
+    const handleStateSync = (data: any) => {
+      if (data.status === 'playing' && data.question) {
+        if (data.qIndex !== lastProcessedQIndexRef.current) {
+          lastProcessedQIndexRef.current = data.qIndex;
+          setQuestion({
+            text: data.question.text,
+            options: data.question.options,
+            timeLimit: data.question.timeLimit,
+            type: data.question.type || 'mcq',
+            hint: data.question.hint,
+            media_url: data.question.media_url,
+            pairs: data.question.pairs,
+          });
+          setQIndex(data.qIndex);
+          dispatch(setCurrentQuestionIndex(data.qIndex));
+          dispatch(setHasAnswered(data.hasAnswered));
+          setSelectedOption(null);
+          setSelectedMultiOptions([]);
+          setMatches({});
+          setStartTime(Date.now());
+          setIsHintUnlocked(data.isHintRevealed);
+          setSessionStatus('question');
+          setCorrectAnswers([]);
+          setAnswerStats({ A: 0, B: 0, C: 0, D: 0 });
+          setTotalAnswersCount(0);
+          setLocalPlayerStats(null);
+        } else {
+          dispatch(setHasAnswered(data.hasAnswered));
+          setIsHintUnlocked(data.isHintRevealed);
+        }
+      } else if (data.status === 'podium') {
+        navigate('/player/podium');
+      }
+    };
+
+    const handleConnect = () => {
+      socketService.emit('game:request-sync', { pin, nickname, role: 'player' });
+    };
+
     socketService.on('question:new', handleNewQuestion);
     socketService.on('question:ended', handleQuestionEnded);
     socketService.on('answer:reveal', handleAnswerReveal);
@@ -165,6 +204,12 @@ export const PlayerQuestion: React.FC = () => {
     socketService.on('game:finished', handleGameFinished);
     socketService.on('game:go-leaderboard', handleGoLeaderboard);
     socketService.on('podium:reveal', handleGameFinished);
+    socketService.on('game:state-sync', handleStateSync);
+    socketService.on('connect', handleConnect);
+
+    if (socketService.isConnected()) {
+      socketService.emit('game:request-sync', { pin, nickname, role: 'player' });
+    }
 
     return () => {
       socketService.off('question:new');
@@ -175,6 +220,8 @@ export const PlayerQuestion: React.FC = () => {
       socketService.off('game:finished');
       socketService.off('game:go-leaderboard');
       socketService.off('podium:reveal');
+      socketService.off('game:state-sync');
+      socketService.off('connect', handleConnect);
     };
   }, [pin, navigate, dispatch, nickname]);
 

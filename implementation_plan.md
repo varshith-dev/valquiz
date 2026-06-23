@@ -5,6 +5,63 @@
 > **Mandatory**: React (frontend) + Node.js (backend) + Valkey (real-time)
 > **Revised**: Supabase instead of MongoDB, Redux Toolkit instead of Zustand, FastAPI as AI microservice, no Framer Motion.
 
+# Robust Socket Reconnection & Sync Recovery Plan
+
+## Problem
+In the previous deployment, we migrated from Firestore sync to Socket.IO + Valkey. However, two critical issues prevent it from working reliably in production on Hugging Face:
+1. **HTTP Handshake / Polling Transport Failure (503)**: Hugging Face proxy blocks long-polling handshakes (`polling` transport), resulting in `503 Service Unavailable` errors.
+2. **Socket Disconnect/Reconnect State Loss**: When a client (host or player) disconnects and reconnects (a frequent event under proxy setups), their socket ID changes. Since the server maps roles (`host`/`player`) and nicknames to the connection's `socket.id` (stored only during the initial `host:create` or `player:join` events), the reconnected socket loses its identity.
+   - For hosts: Emitting `host:start` is ignored silently because the server no longer recognizes them as the host (`session?.role !== 'host'`).
+   - For players: They do not receive `game:start` or `question:new` broadcasts because they never rejoin the room `game:${pin}` or `player:${pin}:${nickname}` upon reconnection.
+
+## Proposed Changes
+
+### 1. Client — Socket Service
+#### [MODIFY] [socket.ts](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/client/src/services/socket.ts)
+- Change `transports: ['polling', 'websocket']` to `transports: ['websocket']` to enforce direct WebSocket connections, bypassing HF proxy's 503 issues on long-polling handshake.
+- Auto-reassociate on connect/reconnect: When the socket connects/reconnects, automatically emit `game:request-sync` with the stored PIN, nickname, and role if they exist.
+
+### 2. Server — Socket Handlers
+#### [MODIFY] [handlers.ts](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/server/src/socket/handlers.ts)
+- Modify the `game:request-sync` handler:
+  - Accept `{ pin, nickname, role }` from the client.
+  - Re-register the socket in `socketMap` with the correct `role`, `pin`, and `nickname`.
+  - Rejoin the client socket to the correct rooms: `game:${pin}`, and either `host:${pin}` or `player:${pin}:${nickname}`.
+  - If a player, update the socket ID in Valkey using `GameManager.updatePlayerSocket(pin, nickname, socket.id)`.
+  - Calculate `secondsLeft` for the current question using `questionStartTime` in Valkey, and pass it in the `question` object (overriding `timeLimit`) so the client timer resumes from the correct remaining time.
+- Modify `sendQuestion` helper:
+  - Store the current question's start time in Valkey: `await v.hSet('game:pin:config', 'questionStartTime', Date.now().toString())`.
+
+### 3. Client — Game Pages State Sync & Reassociation
+#### [MODIFY] [PlayerLobby.tsx](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/client/src/pages/Play/PlayerLobby.tsx)
+- Pass `{ pin: activePin, nickname, role: 'player' }` when emitting `game:request-sync`.
+
+#### [MODIFY] [PlayerQuestion.tsx](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/client/src/pages/Play/PlayerQuestion.tsx)
+- Emit `game:request-sync` on mount/reconnect: `socketService.emit('game:request-sync', { pin, nickname, role: 'player' })`.
+- Add a listener for `game:state-sync` that updates the question text, options, and remaining time (`timeLimit` derived from `secondsLeft` sent by the server).
+
+#### [MODIFY] [HostLobby.tsx](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/client/src/pages/Host/HostLobby.tsx)
+- Pass `{ pin, role: 'host' }` when emitting `game:request-sync`.
+
+#### [MODIFY] [HostQuestion.tsx](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/client/src/pages/Host/HostQuestion.tsx)
+- Emit `game:request-sync` on mount/reconnect: `socketService.emit('game:request-sync', { pin, role: 'host' })`.
+- Listen for `game:state-sync` to re-sync the answers count and other metrics.
+
+#### [MODIFY] [HostLeaderboard.tsx](file:///c:/Users/ADMIN/Desktop/VALKEY-HACKATON/client/src/pages/Host/HostLeaderboard.tsx)
+- Emit `game:request-sync` on mount: `socketService.emit('game:request-sync', { pin, role: 'host' })`.
+
+## Verification Plan
+
+### Automated/Local Tests
+- Run backend locally and simulate host and player connections.
+- Manually disconnect sockets and verify that they rejoin rooms and resume state (timers, roles, answer count) instantly upon reconnection.
+
+### Manual Verification
+- Deploy to Hugging Face and Vercel.
+- Verify that clients no longer throw `503 Service Unavailable` on connection.
+- Verify that when the host starts the game, the player screen transitions immediately to the question screen.
+- Verify that refreshing either the host or player page does not break the session.
+
 ---
 
 ## Tech Stack — Final

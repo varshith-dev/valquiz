@@ -32,7 +32,7 @@ class SocketService {
 
     try {
       this.socket = io(this.backendUrl || window.location.origin, {
-        transports: ['polling', 'websocket'], // Allow polling handshake and then upgrade to websocket
+        transports: ['websocket'], // Enforce websocket-only to bypass Hugging Face proxy 503 errors on polling
         autoConnect: true,
         reconnection: true,
         reconnectionAttempts: 20,

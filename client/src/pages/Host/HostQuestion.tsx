@@ -74,16 +74,38 @@ export const HostQuestion: React.FC = () => {
       }
     };
 
+    const handleStateSync = (data: any) => {
+      if (data.answerCount !== undefined) {
+        setAnsweredCount(data.answerCount);
+      }
+      if (data.leaderboard) {
+        dispatch(setPlayers(data.leaderboard));
+      }
+    };
+
+    const handleConnect = () => {
+      socketService.emit('game:request-sync', { pin, role: 'host' });
+    };
+
     socketService.on('answer:count', handleAnswerCount);
     socketService.on('answer:distribution', handleDistribution);
     socketService.on('leaderboard:update', handleLeaderboard);
     socketService.on('answer:reveal', handleAnswerReveal);
+    socketService.on('game:state-sync', handleStateSync);
+    socketService.on('connect', handleConnect);
+
+    // Request initial sync
+    if (socketService.isConnected()) {
+      socketService.emit('game:request-sync', { pin, role: 'host' });
+    }
 
     return () => {
       socketService.off('answer:count');
       socketService.off('answer:distribution');
       socketService.off('leaderboard:update');
       socketService.off('answer:reveal');
+      socketService.off('game:state-sync');
+      socketService.off('connect', handleConnect);
     };
   }, [pin, dispatch]);
 

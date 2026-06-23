@@ -291,17 +291,25 @@ export const HostLobby: React.FC = () => {
       }
     };
 
+    const handleConnect = () => {
+      socketService.emit('game:request-sync', { pin, role: 'host' });
+    };
+
     socketService.on('player:joined', handleJoined);
     socketService.on('player:left', handleLeft);
     socketService.on('game:state-sync', handleStateSync);
+    socketService.on('connect', handleConnect);
 
     // Request initial sync in case players joined before mounting/on reconnect
-    socketService.emit('game:request-sync', { pin });
+    if (socketService.isConnected()) {
+      socketService.emit('game:request-sync', { pin, role: 'host' });
+    }
 
     return () => {
       socketService.off('player:joined');
       socketService.off('player:left');
       socketService.off('game:state-sync');
+      socketService.off('connect', handleConnect);
     };
   }, [pin]);
 
