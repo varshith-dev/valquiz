@@ -2,10 +2,15 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# Ensure correct permissions for the app directory
+RUN chown -R node:node /app
+
+USER node
+
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --only=production
 
-COPY . .
+COPY --chown=node:node . .
 
 RUN npm run build
 
