@@ -94,6 +94,8 @@ export interface ServerToClientEvents {
     isHintRevealed: boolean;
     hasAnswered: boolean;
     answerCount: number;
+    distribution?: Record<string, number>;
+    questions?: Question[];
   }) => void;
   'error': (data: { message: string; code: string }) => void;
 }

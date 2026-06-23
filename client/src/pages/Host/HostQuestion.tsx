@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
-import { setHintRevealed, setPlayers, setStatus } from '../../store/gameSlice';
+import { setHintRevealed, setPlayers, setStatus, setQuestions } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';
@@ -57,6 +57,12 @@ export const HostQuestion: React.FC = () => {
       }
     };
 
+    const handleQuestionEnded = (data: any) => {
+      if (data.distribution) {
+        setAnswerDistribution(data.distribution);
+      }
+    };
+
     // Leaderboard update after scoring
     const handleLeaderboard = (data: any) => {
       if (data.leaderboard) {
@@ -81,6 +87,12 @@ export const HostQuestion: React.FC = () => {
       if (data.leaderboard) {
         dispatch(setPlayers(data.leaderboard));
       }
+      if (data.distribution) {
+        setAnswerDistribution(data.distribution);
+      }
+      if (data.questions) {
+        dispatch(setQuestions(data.questions));
+      }
     };
 
     const handleConnect = () => {
@@ -89,6 +101,7 @@ export const HostQuestion: React.FC = () => {
 
     socketService.on('answer:count', handleAnswerCount);
     socketService.on('answer:distribution', handleDistribution);
+    socketService.on('question:ended', handleQuestionEnded);
     socketService.on('leaderboard:update', handleLeaderboard);
     socketService.on('answer:reveal', handleAnswerReveal);
     socketService.on('game:state-sync', handleStateSync);
@@ -102,6 +115,7 @@ export const HostQuestion: React.FC = () => {
     return () => {
       socketService.off('answer:count');
       socketService.off('answer:distribution');
+      socketService.off('question:ended');
       socketService.off('leaderboard:update');
       socketService.off('answer:reveal');
       socketService.off('game:state-sync');
@@ -266,7 +280,7 @@ export const HostQuestion: React.FC = () => {
               </div>
             )}
 
-            {(phase === 'reveal_distribution' || phase === 'reveal_answer') && question.type !== 'match' && (
+            {question.type !== 'match' && (
               <div 
                 className="minimalist-card animate-fade-in-up"
                 style={{

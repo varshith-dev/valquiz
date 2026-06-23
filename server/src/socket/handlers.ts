@@ -154,6 +154,10 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
         const count = await GameManager.getAnswerCount(pin, qIndex);
         io.to(`host:${pin}`).emit('answer:count', { count });
 
+        // Broadcast updated distribution to host
+        const distribution = await GameManager.getAnswerDistribution(pin, qIndex);
+        io.to(`host:${pin}`).emit('answer:distribution', { distribution });
+
         callback({ success: true });
       } catch (err: any) {
         console.error('Submit answer error:', err);
@@ -174,6 +178,10 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
         // Get updated count and broadcast to host
         const count = await GameManager.getAnswerCount(pin, qIndex);
         io.to(`host:${pin}`).emit('answer:count', { count });
+
+        // Broadcast updated distribution to host
+        const distribution = await GameManager.getAnswerDistribution(pin, qIndex);
+        io.to(`host:${pin}`).emit('answer:distribution', { distribution });
       } catch (err) {
         console.error('Answer error:', err);
       }
@@ -498,6 +506,7 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
         }
 
         const answerCount = await GameManager.getAnswerCount(pin, qIndex);
+        const distribution = await GameManager.getAnswerDistribution(pin, qIndex);
 
         // Calculate secondsLeft if game is in playing status
         let secondsLeft: number | undefined = undefined;
@@ -529,6 +538,8 @@ export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerTo
           isHintRevealed,
           hasAnswered,
           answerCount,
+          distribution,
+          questions: activeSession.role === 'host' ? questions : undefined,
         });
       } catch (err) {
         console.error('State sync error:', err);
