@@ -32,7 +32,7 @@ class SocketService {
 
     try {
       this.socket = io(this.backendUrl || window.location.origin, {
-        transports: ['websocket'],       // WebSocket only — skip long-polling for lowest latency
+        transports: ['polling', 'websocket'], // Allow polling handshake and then upgrade to websocket
         autoConnect: true,
         reconnection: true,
         reconnectionAttempts: 20,
