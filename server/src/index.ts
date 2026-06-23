@@ -56,7 +56,7 @@ async function main() {
     process.exit(1);
   }
 
-  httpServer.listen(env.PORT, () => {
+  httpServer.listen(env.PORT, '0.0.0.0', () => {
     console.log(`
 ╔══════════════════════════════════════════════╗
 ║           🎮 ValQuiz Server v1.0            ║
