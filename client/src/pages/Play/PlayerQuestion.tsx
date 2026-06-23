@@ -225,9 +225,10 @@ export const PlayerQuestion: React.FC = () => {
     };
   }, [pin, navigate, dispatch, nickname]);
 
-  // Auto submit when time is up
+  // Auto submit when time is up (guarded against initial render hook state lag)
   useEffect(() => {
-    if (secondsLeft === 0 && !hasAnswered && question) {
+    const elapsedMs = Date.now() - startTime;
+    if (secondsLeft === 0 && elapsedMs >= 1000 && !hasAnswered && question) {
       if (question.type === 'match') {
         submitAnswer(Object.values(matches));
       } else if (isMultiChoice) {
@@ -236,7 +237,7 @@ export const PlayerQuestion: React.FC = () => {
         submitAnswer([]);
       }
     }
-  }, [secondsLeft, hasAnswered, question, matches, selectedMultiOptions, isMultiChoice]);
+  }, [secondsLeft, hasAnswered, question, matches, selectedMultiOptions, isMultiChoice, startTime]);
 
   // If no question received yet, show waiting screen
   if (!question) {
