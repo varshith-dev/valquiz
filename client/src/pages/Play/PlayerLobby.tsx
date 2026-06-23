@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
 import { setStatus, setPin } from '../../store/gameSlice';
 import { setNickname } from '../../store/playerSlice';
-import { firestore, safeSignInAnonymously, setDoc } from '../../services/firebase';
-import { doc, getDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
+import { safeSignInAnonymously } from '../../services/firebase';
+import socketService from '../../services/socket';
 import { Check, AlertCircle } from 'lucide-react';
 
 export const PlayerLobby: React.FC = () => {
@@ -62,46 +62,58 @@ export const PlayerLobby: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Listen to game session status changes and transition
+  // Listen to game status, joins, leaves and sync states from Socket.IO
   useEffect(() => {
     const activePin = pin || sessionStorage.getItem('valquiz_pin');
-    if (!activePin) return;
+    if (!activePin || !nickname) return;
 
-    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', activePin), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.status === 'question') {
-          dispatch(setStatus('question'));
-          navigate('/player/question');
-        } else if (data.status === 'finished' || data.status === 'podium') {
-          dispatch(setStatus('podium'));
-          navigate('/player/podium');
-        }
-      }
-    });
+    socketService.connect();
 
-    return () => unsubscribe();
-  }, [pin, dispatch, navigate]);
-  // Listen to live player pool joining in the lobby
-  useEffect(() => {
-    const activePin = pin || sessionStorage.getItem('valquiz_pin');
-    if (!activePin) return;
-
-    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', activePin, 'players'), (snapshot) => {
-      const list: string[] = [];
-      snapshot.forEach((d) => {
-        const pData = d.data();
-        list.push(pData.nickname || d.id);
+    const handleJoined = (data: any) => {
+      const { nickname: joinedName } = data;
+      setLobbyPlayers((prev) => {
+        if (prev.includes(joinedName)) return prev;
+        return [...prev, joinedName];
       });
-      setLobbyPlayers(list);
-    }, (err) => {
-      console.error("Firestore lobby players listener error:", err);
-    });
+    };
 
-    return () => unsubscribe();
-  }, [pin]);
+    const handleLeft = (data: any) => {
+      const { nickname: leftName } = data;
+      setLobbyPlayers((prev) => prev.filter((p) => p !== leftName));
+    };
 
-  const handleNicknameSubmit = async (e: React.FormEvent) => {
+    const handleStart = () => {
+      dispatch(setStatus('question'));
+      navigate('/player/question');
+    };
+
+    const handleStateSync = (data: any) => {
+      if (data.players) {
+        setLobbyPlayers(data.players);
+      }
+      if (data.status === 'playing') {
+        dispatch(setStatus('question'));
+        navigate('/player/question');
+      }
+    };
+
+    socketService.on('player:joined', handleJoined);
+    socketService.on('player:left', handleLeft);
+    socketService.on('game:start', handleStart);
+    socketService.on('game:state-sync', handleStateSync);
+
+    // Request initial sync to sync state
+    socketService.emit('game:request-sync', { pin: activePin });
+
+    return () => {
+      socketService.off('player:joined');
+      socketService.off('player:left');
+      socketService.off('game:start');
+      socketService.off('game:state-sync');
+    };
+  }, [pin, nickname, dispatch, navigate]);
+
+  const handleNicknameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = inputName.trim();
 
@@ -115,34 +127,20 @@ export const PlayerLobby: React.FC = () => {
 
     const activePin = pin || sessionStorage.getItem('valquiz_pin') || '';
 
-    try {
-      // Check if nickname already exists in Firestore subcollection
-      const playerSnap = await getDoc(doc(firestore, 'game_sessions', activePin, 'players', trimmed));
-      if (playerSnap.exists()) {
-        setError('Nickname already taken. Choose another!');
+    socketService.connect();
+    socketService.emit('player:join', { pin: activePin, nickname: trimmed }, (res: any) => {
+      if (res && res.success) {
+        dispatch(setNickname(trimmed));
+        sessionStorage.setItem('valquiz_nickname', trimmed);
+        if (res.players) {
+          setLobbyPlayers(res.players);
+        }
         setLoading(false);
-        return;
+      } else {
+        setError(res?.error || 'Failed to join game session.');
+        setLoading(false);
       }
-
-      // Write player data
-      await setDoc(doc(firestore, 'game_sessions', activePin, 'players', trimmed), {
-        nickname: trimmed,
-        joinedAt: Date.now(),
-        score: 0,
-        streak: 0,
-        powerUps: ['freeze', 'double', 'skip'],
-        lastAnswerCorrect: false,
-        lastAnswerPoints: 0,
-      });
-
-      dispatch(setNickname(trimmed));
-      sessionStorage.setItem('valquiz_nickname', trimmed);
-      setLoading(false);
-    } catch (err: any) {
-      console.error('Error joining lobby:', err);
-      setError(err.message || 'Failed to join game session.');
-      setLoading(false);
-    }
+    });
   };
 
   // Concentric ellipse layer-wise layout centered in the viewport container
@@ -258,12 +256,8 @@ export const PlayerLobby: React.FC = () => {
   // 2. ACTIVE LOBBY WAITING STATE (If name is successfully configured)
   const allJoinedPlayers = lobbyPlayers.includes(nickname) ? lobbyPlayers : [nickname, ...lobbyPlayers];
 
-  const handleQuit = async () => {
-    try {
-      await deleteDoc(doc(firestore, 'game_sessions', pin, 'players', nickname));
-    } catch (err) {
-      console.error('Failed to delete player profile on quit:', err);
-    }
+  const handleQuit = () => {
+    socketService.disconnect();
     dispatch(setNickname(''));
     sessionStorage.removeItem('valquiz_pin');
     sessionStorage.removeItem('valquiz_nickname');

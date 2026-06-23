@@ -28,8 +28,11 @@ async function main() {
       origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
       methods: ['GET', 'POST'],
     },
-    pingInterval: 10000,
-    pingTimeout: 5000,
+    pingInterval: 5000,        // Detect disconnects faster (was 10000)
+    pingTimeout: 3000,         // Faster timeout (was 5000)
+    transports: ['websocket', 'polling'], // Prefer WebSocket
+    allowUpgrades: true,
+    perMessageDeflate: false,  // Disable compression for lower latency
   });
 
   // ─── Routes ──────────────────────────────────────────

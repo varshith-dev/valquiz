@@ -6,8 +6,7 @@ import { setHintRevealed, setPlayers, setStatus, setQuestions, setCurrentQuestio
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import CountdownTimer from '../../components/Timer/CountdownTimer';
 import useTimer from '../../hooks/useTimer';
-import { firestore, setDoc } from '../../services/firebase';
-import { collection, onSnapshot, doc, getDocs } from 'firebase/firestore';
+import socketService from '../../services/socket';
 import { Check, BarChart2, Pause, Play, Sparkles } from 'lucide-react';
 
 export const HostQuestion: React.FC = () => {
@@ -35,221 +34,87 @@ export const HostQuestion: React.FC = () => {
   const [answerDistribution, setAnswerDistribution] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
   const [phase, setPhase] = useState<'question' | 'reveal_distribution' | 'reveal_answer'>('question');
 
-  // Sync phase and state with game session status in Firestore
-  useEffect(() => {
-    if (!pin) return;
-    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-
-        // Restore questions and index on page load/refresh
-        if (data.questions && data.questions.length > 0) {
-          dispatch(setQuestions(data.questions));
-        }
-        if (data.currentQuestionIndex !== undefined && data.currentQuestionIndex >= 0) {
-          dispatch(setCurrentQuestionIndex(data.currentQuestionIndex));
-        }
-
-        if (data.status === 'question') {
-          setPhase('question');
-        } else if (data.status === 'reveal_distribution') {
-          setPhase('reveal_distribution');
-          setIsPaused(true);
-        } else if (data.status === 'reveal_answer') {
-          setPhase('reveal_answer');
-          setIsPaused(true);
-        }
-      }
-    });
-    return () => unsubscribe();
-  }, [pin, dispatch]);
-
   // Hook timer countdown (supports pause/resume)
   const secondsLeft = useTimer(timeLimit, () => {
     handleQuestionEnd();
   }, isPaused);
 
-  // Sync with Firestore answers subcollection
+  // ─── Socket Event Listeners ────────────────────────
   useEffect(() => {
     if (!pin) return;
 
-    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', pin, 'answers'), (snapshot) => {
-      setAnsweredCount(snapshot.size);
+    socketService.connect();
 
-      // Aggregate answer choices in real-time
-      const distribution: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
-      snapshot.forEach((d) => {
-        const data = d.data();
-        if (data.answerIds && Array.isArray(data.answerIds)) {
-          data.answerIds.forEach((ansId: string) => {
-            if (distribution[ansId] !== undefined) {
-              distribution[ansId]++;
-            }
-          });
-        }
-      });
-      setAnswerDistribution(distribution);
-    });
+    // Real-time answer count from server
+    const handleAnswerCount = (data: any) => {
+      setAnsweredCount(data.count);
+    };
 
-    return () => unsubscribe();
-  }, [pin]);
-
-  const calculateAndPublishScores = async () => {
-    if (!pin) return;
-    try {
-      // 1. Get all players and answers in parallel
-      const [playersSnapshot, answersSnapshot] = await Promise.all([
-        getDocs(collection(firestore, 'game_sessions', pin, 'players')),
-        getDocs(collection(firestore, 'game_sessions', pin, 'answers'))
-      ]);
-      
-      const answersMap: Record<string, any> = {};
-      answersSnapshot.forEach((d) => {
-        answersMap[d.id] = d.data();
-      });
-
-      const currentQ = questions[currentIdx];
-      const correctAnswers = currentQ.correct || [];
-      const timeLimitMs = timeLimit * 1000;
-
-      const playerUpdates: any[] = [];
-      const updatedPlayers: any[] = [];
-
-      for (const pDoc of playersSnapshot.docs) {
-        const player = pDoc.data();
-        const nickname = pDoc.id;
-        const answer = answersMap[nickname];
-
-        let correct = false;
-        let pointsEarned = 0;
-        let streak = player.streak || 0;
-        let responseTimeMs = 0;
-
-        if (answer) {
-          responseTimeMs = answer.responseTimeMs || 0;
-          const playerAnswers = answer.answerIds || [];
-
-          if (currentQ.type === 'match') {
-            correct = true; // Fallback matches are correct
-          } else {
-            // MCQ correctness evaluation
-            const isCorrectSorted = [...correctAnswers].sort().join(',');
-            const playerSorted = [...playerAnswers].sort().join(',');
-            correct = isCorrectSorted === playerSorted;
-          }
-
-          if (correct) {
-            streak += 1;
-            const ratio = Math.max(0, 1 - responseTimeMs / timeLimitMs);
-            // Balanced scoring: 30% speed, 70% accuracy
-            const baseScore = Math.round(300 + ratio * 700);
-            const multiplier = 1 + Math.min(streak - 1, 4) * 0.2; // Max 2x multiplier
-            pointsEarned = Math.round(baseScore * multiplier);
-          } else {
-            streak = 0;
-          }
-        } else {
-          streak = 0;
-        }
-
-        const newScore = (player.score || 0) + pointsEarned;
-
-        playerUpdates.push({
-          ref: doc(firestore, 'game_sessions', pin, 'players', nickname),
-          data: {
-            score: newScore,
-            streak,
-            lastAnswerCorrect: correct,
-            lastAnswerPoints: pointsEarned,
-            lastResponseTimeMs: responseTimeMs,
-          }
-        });
-
-        updatedPlayers.push({
-          ...player,
-          nickname: player.nickname || nickname,
-          score: newScore,
-          streak,
-          lastAnswerCorrect: correct,
-          lastAnswerPoints: pointsEarned,
-          lastResponseTimeMs: responseTimeMs,
-        });
+    // Answer distribution update
+    const handleDistribution = (data: any) => {
+      if (data.distribution) {
+        setAnswerDistribution(data.distribution);
       }
+    };
 
-      // Sort leaderboard in memory
-      updatedPlayers.sort((a, b) => b.score - a.score);
-      const leaderboard = updatedPlayers.map((p, idx) => ({
-        nickname: p.nickname,
-        score: p.score,
-        streak: p.streak,
-        rank: idx + 1,
-      }));
+    // Leaderboard update after scoring
+    const handleLeaderboard = (data: any) => {
+      if (data.leaderboard) {
+        dispatch(setPlayers(data.leaderboard));
+      }
+    };
 
-      // Update Redux state
-      dispatch(setPlayers(leaderboard));
+    // Answer reveal complete (from our own emit, reflected back)
+    const handleAnswerReveal = (data: any) => {
+      if (data.distribution) {
+        setAnswerDistribution(data.distribution);
+      }
+      if (data.leaderboard) {
+        dispatch(setPlayers(data.leaderboard));
+      }
+    };
 
-      // Commit player scores updates AND update session status concurrently in a single Promise.all block
-      await Promise.all([
-        ...playerUpdates.map(u => setDoc(u.ref, u.data, { merge: true })),
-        setDoc(doc(firestore, 'game_sessions', pin), {
-          status: 'reveal_answer',
-          leaderboard,
-          showResults: true,
-          answerDistribution,
-        }, { merge: true })
-      ]);
+    socketService.on('answer:count', handleAnswerCount);
+    socketService.on('answer:distribution', handleDistribution);
+    socketService.on('leaderboard:update', handleLeaderboard);
+    socketService.on('answer:reveal', handleAnswerReveal);
 
-    } catch (err) {
-      console.error('Error calculating and publishing scores:', err);
-    }
-  };
+    return () => {
+      socketService.off('answer:count');
+      socketService.off('answer:distribution');
+      socketService.off('leaderboard:update');
+      socketService.off('answer:reveal');
+    };
+  }, [pin, dispatch]);
 
-  const handleQuestionEnd = async () => {
+  const handleQuestionEnd = () => {
     setIsPaused(true);
     setPhase('reveal_distribution');
 
     if (pin) {
-      try {
-        await setDoc(doc(firestore, 'game_sessions', pin), {
-          status: 'reveal_distribution',
-          showResults: true,
-          answerDistribution,
-        }, { merge: true });
-      } catch (err) {
-        console.error('Failed to end question answering:', err);
-      }
+      socketService.emit('host:end-question', { pin });
     }
   };
 
-  const handleRevealAnswer = async () => {
+  const handleRevealAnswer = () => {
     setPhase('reveal_answer');
-    await calculateAndPublishScores();
+    if (pin) {
+      socketService.emit('host:reveal-answer', { pin });
+    }
   };
 
-  const handleGoToLeaderboard = async () => {
+  const handleGoToLeaderboard = () => {
     if (pin) {
-      try {
-        await setDoc(doc(firestore, 'game_sessions', pin), {
-          status: 'leaderboard',
-        }, { merge: true });
-      } catch (err) {
-        console.error('Failed to transition to leaderboard:', err);
-      }
+      socketService.emit('host:go-leaderboard', { pin });
     }
     dispatch(setStatus('leaderboard'));
     navigate('/a/host/leaderboard');
   };
 
-  const handleRevealHint = async () => {
+  const handleRevealHint = () => {
     dispatch(setHintRevealed(true));
     if (pin) {
-      try {
-        await setDoc(doc(firestore, 'game_sessions', pin), {
-          isHintRevealed: true,
-        }, { merge: true });
-      } catch (err) {
-        console.error('Failed to sync hint reveal:', err);
-      }
+      socketService.emit('host:reveal-hint', { pin });
     }
   };
 

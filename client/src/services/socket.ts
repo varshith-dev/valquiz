@@ -25,10 +25,13 @@ class SocketService {
 
     try {
       this.socket = io(this.backendUrl || window.location.origin, {
+        transports: ['websocket'],       // WebSocket only — skip long-polling for lowest latency
         autoConnect: true,
         reconnection: true,
-        reconnectionAttempts: 10,
-        reconnectionDelay: 1000,
+        reconnectionAttempts: 20,
+        reconnectionDelay: 500,          // Faster reconnect (was 1000ms)
+        reconnectionDelayMax: 3000,
+        timeout: 5000,
       });
 
       this.socket.on('connect', () => {
@@ -85,6 +88,10 @@ class SocketService {
         this.socket.off(event);
       }
     }
+  }
+
+  public isConnected(): boolean {
+    return this.socket?.connected ?? false;
   }
 }
 

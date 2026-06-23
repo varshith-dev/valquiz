@@ -7,6 +7,7 @@ import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import PodiumStage from '../../components/Podium/PodiumStage';
 import { safeRef, safeSet, firestore } from '../../services/firebase';
 import { doc, deleteDoc, getDocs, collection } from 'firebase/firestore';
+import socketService from '../../services/socket';
 import { Home, RefreshCw } from 'lucide-react';
 
 interface Particle {
@@ -72,6 +73,10 @@ export const HostPodium: React.FC = () => {
   const handleReset = async () => {
     if (pin) {
       try {
+        // Emit host:end and disconnect socket
+        socketService.emit('host:end', { pin });
+        socketService.disconnect();
+
         // Cleanup subcollections
         const playersSnap = await getDocs(collection(firestore, 'game_sessions', pin, 'players'));
         await Promise.all(playersSnap.docs.map(d => deleteDoc(d.ref)));

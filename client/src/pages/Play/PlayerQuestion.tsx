@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store';
 import { setHasAnswered, updatePlayerStats } from '../../store/playerSlice';
 import { setCurrentQuestionIndex } from '../../store/gameSlice';
 import AnswerButton from '../../components/Question/AnswerButton';
-import { firestore, setDoc } from '../../services/firebase';
-import { doc, onSnapshot, collection } from 'firebase/firestore';
+import socketService from '../../services/socket';
 import { HelpCircle, Sparkles, CheckSquare } from 'lucide-react';
 import { useTimer } from '../../hooks/useTimer';
 
@@ -42,7 +41,7 @@ export const PlayerQuestion: React.FC = () => {
   
   const [startTime, setStartTime] = useState(Date.now());
   
-  // Current question from Firestore
+  // Current question from Socket
   const [question, setQuestion] = useState<any>(null);
   const [qIndex, setQIndex] = useState(-1);
   
@@ -57,148 +56,127 @@ export const PlayerQuestion: React.FC = () => {
   const [showHintPopup, setShowHintPopup] = useState(false);
   const [isHintUnlocked, setIsHintUnlocked] = useState(false);
 
-  // Custom states for reveal/distribution flow
+  // Game phase states (driven by socket events)
   const [sessionStatus, setSessionStatus] = useState<string>('question');
-  const [totalAnswersCount, setTotalAnswersCount] = useState(0);
   const [answerStats, setAnswerStats] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
+  const [totalAnswersCount, setTotalAnswersCount] = useState(0);
+  const [correctAnswers, setCorrectAnswers] = useState<string[]>([]);
 
-  // Keep track of player stats locally to prevent race conditions during transitions
+  // Player stats from score:update
   const [localPlayerStats, setLocalPlayerStats] = useState<any>(null);
   const lastProcessedQIndexRef = useRef<number>(-1);
 
-  // Subscribe to player's stats document in real-time and sync to Redux
+  // ─── Socket Event Listeners ────────────────────────
   useEffect(() => {
-    if (!pin || !nickname) return;
+    if (!pin) return;
 
-    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin, 'players', nickname), (docSnap) => {
-      if (docSnap.exists()) {
-        const statsData = docSnap.data();
-        setLocalPlayerStats(statsData);
+    // Ensure socket is connected
+    socketService.connect();
+
+    // New question arrives from server
+    const handleNewQuestion = (data: any) => {
+      const { qIndex: newQIndex, text, options, timeLimit, type, hint, media_url, pairs } = data;
+      
+      if (newQIndex !== lastProcessedQIndexRef.current) {
+        lastProcessedQIndexRef.current = newQIndex;
         
-        // Sync stats to Redux store
-        dispatch(updatePlayerStats({
-          score: statsData.score || 0,
-          streak: statsData.streak || 0,
-          isCorrect: statsData.lastAnswerCorrect ?? null,
-          rank: statsData.rank || 0,
-        }));
+        setQuestion({ text, options, timeLimit, type: type || 'mcq', hint, media_url, pairs });
+        setQIndex(newQIndex);
+        dispatch(setCurrentQuestionIndex(newQIndex));
+        dispatch(setHasAnswered(false));
+        setSelectedOption(null);
+        setSelectedMultiOptions([]);
+        setMatches({});
+        setStartTime(Date.now());
+        setIsHintUnlocked(false);
+        setSessionStatus('question');
+        setCorrectAnswers([]);
+        setAnswerStats({ A: 0, B: 0, C: 0, D: 0 });
+        setTotalAnswersCount(0);
+        setLocalPlayerStats(null);
       }
-    });
+    };
 
-    return () => unsubscribe();
-  }, [pin, nickname, dispatch]);
-
-  // Sync player's answered state and selections from Firestore (e.g., on mount, refresh, or question change)
-  useEffect(() => {
-    if (!pin || !nickname || qIndex < 0) return;
-
-    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin, 'answers', nickname), (docSnap) => {
-      if (docSnap.exists()) {
-        const answerData = docSnap.data();
-        if (answerData.qIndex === qIndex) {
-          dispatch(setHasAnswered(true));
-          if (answerData.answerIds && answerData.answerIds.length > 0) {
-            setSelectedOption(answerData.answerIds[0]);
-            setSelectedMultiOptions(answerData.answerIds);
-            if (question && question.type === 'match') {
-              const reconstructedMatches: Record<string, string> = {};
-              question.pairs?.forEach((pair: any, idx: number) => {
-                if (answerData.answerIds[idx]) {
-                  reconstructedMatches[pair.left] = answerData.answerIds[idx];
-                }
-              });
-              setMatches(reconstructedMatches);
-            }
-          }
-        }
+    // Question ended by host (show distribution)
+    const handleQuestionEnded = (data: any) => {
+      setSessionStatus('reveal_distribution');
+      if (data.distribution) {
+        setAnswerStats(data.distribution);
+        setTotalAnswersCount(Object.values(data.distribution as Record<string, number>).reduce((a: number, b: number) => a + b, 0));
       }
-    });
+    };
 
-    return () => unsubscribe();
-  }, [pin, nickname, qIndex, question, dispatch]);
-
-  // Subscribe to game session document in Firestore
-  useEffect(() => {
-    if (!pin) return;
-
-    const unsubscribe = onSnapshot(doc(firestore, 'game_sessions', pin), (docSnap) => {
-      if (docSnap.exists()) {
-        const sessionData = docSnap.data();
-        const status = sessionData.status || 'question';
-        setSessionStatus(status);
-
-        // 1. Check for game finished / podium transition
-        if (status === 'finished' || status === 'podium') {
-          // If we have final leaderboard, update stats
-          if (sessionData.leaderboard && nickname) {
-            const myEntry = sessionData.leaderboard.find((entry: any) => entry.nickname === nickname);
-            if (myEntry) {
-              dispatch(updatePlayerStats({
-                rank: myEntry.rank,
-                score: myEntry.score,
-              }));
-            }
-          }
-          navigate('/player/podium');
-          return;
-        }
-
-        // 2. Question update sync
-        if (status === 'question') {
-          const currentIdx = sessionData.currentQuestionIndex;
-          if (currentIdx !== undefined && currentIdx >= 0) {
-            const activeQuestion = sessionData.questions?.[currentIdx];
-            if (activeQuestion) {
-              // Trigger state reset only if this is a new question
-              if (currentIdx !== lastProcessedQIndexRef.current) {
-                lastProcessedQIndexRef.current = currentIdx; // Update ref immediately!
-                setQuestion(activeQuestion);
-                setQIndex(currentIdx);
-                dispatch(setCurrentQuestionIndex(currentIdx));
-                dispatch(setHasAnswered(false));
-                setSelectedOption(null);
-                setSelectedMultiOptions([]);
-                setMatches({});
-                setStartTime(Date.now());
-                setIsHintUnlocked(false);
-              }
-
-              // Hint sync
-              if (sessionData.isHintRevealed) {
-                setIsHintUnlocked(true);
-              }
-            }
-          }
-        }
+    // Answer reveal (show correct/incorrect + scores)
+    const handleAnswerReveal = (data: any) => {
+      setSessionStatus('reveal_answer');
+      if (data.correct) setCorrectAnswers(data.correct);
+      if (data.distribution) {
+        setAnswerStats(data.distribution);
+        setTotalAnswersCount(Object.values(data.distribution as Record<string, number>).reduce((a: number, b: number) => a + b, 0));
       }
-    });
+    };
 
-    return () => unsubscribe();
-  }, [pin, navigate, dispatch, nickname]);
-
-  // Subscribe to game session answers subcollection to aggregate selection counts in real-time
-  useEffect(() => {
-    if (!pin) return;
-
-    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', pin, 'answers'), (snapshot) => {
-      setTotalAnswersCount(snapshot.size);
-
-      const stats: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.answerIds && Array.isArray(data.answerIds)) {
-          data.answerIds.forEach((ansId: string) => {
-            if (stats[ansId] !== undefined) {
-              stats[ansId]++;
-            }
-          });
-        }
+    // Individual score update for this player
+    const handleScoreUpdate = (data: any) => {
+      setLocalPlayerStats({
+        score: data.score,
+        streak: data.streak,
+        rank: data.rank,
+        lastAnswerCorrect: data.correct,
+        lastAnswerPoints: data.pointsEarned,
       });
-      setAnswerStats(stats);
-    });
+      dispatch(updatePlayerStats({
+        score: data.score,
+        streak: data.streak,
+        rank: data.rank,
+        isCorrect: data.correct,
+      }));
+    };
 
-    return () => unsubscribe();
-  }, [pin]);
+    // Hint revealed by host
+    const handleHintRevealed = () => {
+      setIsHintUnlocked(true);
+    };
+
+    // Game finished
+    const handleGameFinished = (data: any) => {
+      if (data.finalLeaderboard && nickname) {
+        const myEntry = data.finalLeaderboard.find((entry: any) => entry.nickname === nickname);
+        if (myEntry) {
+          dispatch(updatePlayerStats({
+            rank: myEntry.rank,
+            score: myEntry.score,
+          }));
+        }
+      }
+      navigate('/player/podium');
+    };
+
+    // Go to leaderboard (host is showing leaderboard now)
+    const handleGoLeaderboard = () => {
+      setSessionStatus('leaderboard');
+    };
+
+    socketService.on('question:new', handleNewQuestion);
+    socketService.on('question:ended', handleQuestionEnded);
+    socketService.on('answer:reveal', handleAnswerReveal);
+    socketService.on('score:update', handleScoreUpdate);
+    socketService.on('hint:revealed', handleHintRevealed);
+    socketService.on('game:finished', handleGameFinished);
+    socketService.on('game:go-leaderboard', handleGoLeaderboard);
+    socketService.on('podium:reveal', handleGameFinished);
+
+    return () => {
+      socketService.off('question:new');
+      socketService.off('question:ended');
+      socketService.off('answer:reveal');
+      socketService.off('score:update');
+      socketService.off('hint:revealed');
+      socketService.off('game:finished');
+      socketService.off('game:go-leaderboard');
+      socketService.off('podium:reveal');
+    };
+  }, [pin, navigate, dispatch, nickname]);
 
   // Auto submit when time is up
   useEffect(() => {
@@ -225,24 +203,23 @@ export const PlayerQuestion: React.FC = () => {
     );
   }
 
-  // Submit Answer utility to write to Firestore
+  // Submit Answer via Socket (replaces Firestore write)
   const submitAnswer = async (answerIds: string[]) => {
     if (!pin || !nickname || hasAnswered) return;
 
     dispatch(setHasAnswered(true));
     const responseTimeMs = Date.now() - startTime;
 
-    try {
-      await setDoc(doc(firestore, 'game_sessions', pin, 'answers', nickname), {
-        nickname,
-        qIndex,
-        answerIds,
-        responseTimeMs,
-        timestamp: Date.now(),
-      });
-    } catch (err) {
-      console.error('Failed to submit answer to Firestore:', err);
-    }
+    socketService.emit('player:submit-answer', {
+      pin,
+      qIndex,
+      answerIds,
+      responseTimeMs,
+    }, (res: any) => {
+      if (!res?.success) {
+        console.error('Failed to submit answer:', res?.error);
+      }
+    });
   };
 
   // Single choice submit
@@ -428,7 +405,7 @@ export const PlayerQuestion: React.FC = () => {
               {question.options.map((opt: any) => {
                 const optId = opt.id;
                 const isChecked = selectedMultiOptions.includes(optId);
-                const isCorrect = question.correct?.includes(optId);
+                const isCorrect = correctAnswers.includes(optId);
                 const showResults = sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard';
 
                 let bg = isChecked ? 'var(--color-yellow)' : 'var(--bg-secondary)';
@@ -450,7 +427,11 @@ export const PlayerQuestion: React.FC = () => {
                   } else {
                     filter = 'grayscale(1) opacity(0.35)';
                   }
-                } else if (hasAnswered) {
+                } else if (sessionStatus === 'reveal_distribution') {
+                  // Host ended question but hasn't revealed answers yet
+                  // Keep all options visible, just disabled
+                } else if (hasAnswered && selectedMultiOptions.length > 0) {
+                  // Player actively submitted multi-choice answers
                   if (!isChecked) {
                     filter = 'grayscale(1) opacity(0.35)';
                   }
@@ -499,7 +480,7 @@ export const PlayerQuestion: React.FC = () => {
           </div>
         ) : (
           /* MCQ Single Choice Layout */
-          (hasAnswered || sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard' ? (
+          ((sessionStatus === 'reveal_distribution' || sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard' || (hasAnswered && selectedOption !== null)) ? (
             /* Transformed 1x Single Column Progress Bars Layout */
             <div 
               style={{
@@ -514,7 +495,7 @@ export const PlayerQuestion: React.FC = () => {
               {question.options.map((opt: any) => {
                 const optId = opt.id as 'A' | 'B' | 'C' | 'D';
                 const isSelected = selectedOption === optId;
-                const isCorrectAns = question.correct?.includes(optId);
+                const isCorrectAns = correctAnswers.includes(optId);
                 const showResults = sessionStatus === 'reveal_answer' || sessionStatus === 'leaderboard';
 
                 const count = answerStats[optId] || 0;
@@ -534,6 +515,7 @@ export const PlayerQuestion: React.FC = () => {
                 }
 
                 if (showResults) {
+                  // Host has revealed the correct answer
                   if (isCorrectAns) {
                     fillColor = 'var(--color-green)';
                     colorOverride = 'green';
@@ -544,8 +526,16 @@ export const PlayerQuestion: React.FC = () => {
                   } else {
                     isMasked = true;
                   }
-                } else {
-                  // Answering locked phase
+                } else if (sessionStatus === 'reveal_distribution') {
+                  // Host ended the question but hasn't revealed answers yet
+                  // Show all options normally (no masking), just disabled
+                  if (isSelected) {
+                    // Highlight the player's selection
+                  } else {
+                    // Don't mask - keep options visible but neutral
+                  }
+                } else if (hasAnswered && selectedOption !== null) {
+                  // Player actively selected and locked an answer
                   if (!isSelected) {
                     isMasked = true;
                   }
@@ -660,9 +650,14 @@ export const PlayerQuestion: React.FC = () => {
       </div>
 
       {/* Answer Locked Notification (Waiting Phase) */}
-      {hasAnswered && sessionStatus === 'question' && (
+      {hasAnswered && sessionStatus === 'question' && (selectedOption !== null || selectedMultiOptions.length > 0) && (
         <div style={{ textAlign: 'center', fontWeight: 750, fontSize: '1.1rem', color: 'var(--color-brand)', marginTop: '8px' }}>
           🔒 Answer locked. Waiting for host...
+        </div>
+      )}
+      {hasAnswered && sessionStatus === 'question' && selectedOption === null && selectedMultiOptions.length === 0 && question.type !== 'match' && (
+        <div style={{ textAlign: 'center', fontWeight: 750, fontSize: '1.1rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+          ⏱️ Time's up! Waiting for host...
         </div>
       )}
 

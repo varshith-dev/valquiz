@@ -5,7 +5,8 @@ import type { RootState } from '../../store';
 import { setPin, setQuestions, setStatus, setPlayers, setCurrentQuestionIndex } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import { safeRef, safeGet, auth, firestore, setDoc } from '../../services/firebase';
-import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
+import socketService from '../../services/socket';
 import { Users, Play, AlertCircle, Copy, Check, RefreshCw } from 'lucide-react';
 import type { Question } from '../../types/game';
 
@@ -34,7 +35,7 @@ export const HostLobby: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
-  const { pin } = useSelector((state: RootState) => state.game);
+  const { pin, players } = useSelector((state: RootState) => state.game);
   const [localPlayers, setLocalPlayers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -101,43 +102,50 @@ export const HostLobby: React.FC = () => {
 
       const initGame = async () => {
         try {
-          // Generate a unique 6-digit PIN
-          let generatedPin = '';
-          let attempts = 0;
-          let unique = false;
-          while (attempts < 50 && !unique) {
-            generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-            const docSnap = await getDoc(doc(firestore, 'game_sessions', generatedPin));
-            if (!docSnap.exists()) {
-              unique = true;
+          socketService.connect();
+          socketService.emit('host:create', { nickname: 'HOST' }, async (res: any) => {
+            if (res && res.pin) {
+              const generatedPin = res.pin;
+              let selectedQuestions = mockQuestions;
+              if (selectedQuizId !== 'default') {
+                const found = customQuizzes.find((q) => q.id === selectedQuizId);
+                if (found && found.questions) {
+                  selectedQuestions = found.questions;
+                }
+              }
+
+              const newSession = {
+                pin: generatedPin,
+                status: 'lobby',
+                currentQuestionIndex: -1,
+                createdAt: Date.now(),
+                mode: 'classic',
+                selectedQuizId: selectedQuizId,
+                questions: selectedQuestions,
+                totalQuestions: selectedQuestions.length,
+                showResults: false,
+                hostId: auth.currentUser?.uid || 'HOST'
+              };
+
+              // Save game session to Firestore for client-side discovery/compatibility
+              await setDoc(doc(firestore, 'game_sessions', generatedPin), newSession);
+
+              // Register questions with Socket/Valkey server
+              socketService.emit('host:load-questions', { pin: generatedPin, questions: selectedQuestions }, (loadRes: any) => {
+                if (loadRes && !loadRes.success) {
+                  console.error('Failed to load questions to socket server:', loadRes.error);
+                }
+              });
+
+              dispatch(setPin(generatedPin));
+              sessionStorage.setItem('valquiz_pin', generatedPin);
+              dispatch(setQuestions(selectedQuestions));
+              setCreating(false);
+            } else {
+              setError(res?.error || 'Failed to create game session on server');
+              setCreating(false);
             }
-            attempts++;
-          }
-
-          if (!unique) {
-            throw new Error('Failed to generate a unique session PIN.');
-          }
-
-          const newSession = {
-            pin: generatedPin,
-            status: 'lobby',
-            currentQuestionIndex: -1,
-            createdAt: Date.now(),
-            mode: 'classic',
-            selectedQuizId: 'default',
-            questions: mockQuestions,
-            totalQuestions: mockQuestions.length,
-            showResults: false,
-            hostId: auth.currentUser?.uid || 'HOST'
-          };
-
-          // Save game session to Firestore
-          await setDoc(doc(firestore, 'game_sessions', generatedPin), newSession);
-
-          dispatch(setPin(generatedPin));
-          sessionStorage.setItem('valquiz_pin', generatedPin);
-          dispatch(setQuestions(mockQuestions));
-          setCreating(false);
+          });
         } catch (e: any) {
           console.error('Error creating session:', e);
           setError(e.message || 'Could not initialize game session in database.');
@@ -147,7 +155,7 @@ export const HostLobby: React.FC = () => {
 
       initGame();
     }
-  }, [dispatch, pin, creating, authChecked]);
+  }, [dispatch, pin, creating, authChecked, selectedQuizId, customQuizzes]);
 
   const handleRegeneratePin = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -156,48 +164,48 @@ export const HostLobby: React.FC = () => {
     setError('');
 
     try {
-      let generatedPin = '';
-      let attempts = 0;
-      let unique = false;
-      while (attempts < 50 && !unique) {
-        generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-        const docSnap = await getDoc(doc(firestore, 'game_sessions', generatedPin));
-        if (!docSnap.exists()) {
-          unique = true;
+      socketService.connect();
+      socketService.emit('host:create', { nickname: 'HOST' }, async (res: any) => {
+        if (res && res.pin) {
+          const generatedPin = res.pin;
+          let selectedQuestions = mockQuestions;
+          if (selectedQuizId !== 'default') {
+            const found = customQuizzes.find((q) => q.id === selectedQuizId);
+            if (found && found.questions) {
+              selectedQuestions = found.questions;
+            }
+          }
+
+          const newSession = {
+            pin: generatedPin,
+            status: 'lobby',
+            currentQuestionIndex: -1,
+            createdAt: Date.now(),
+            mode: 'classic',
+            selectedQuizId: selectedQuizId,
+            questions: selectedQuestions,
+            totalQuestions: selectedQuestions.length,
+            showResults: false,
+            hostId: auth.currentUser?.uid || 'HOST'
+          };
+
+          await setDoc(doc(firestore, 'game_sessions', generatedPin), newSession);
+
+          // Register questions with Socket/Valkey server
+          socketService.emit('host:load-questions', { pin: generatedPin, questions: selectedQuestions }, (loadRes: any) => {
+            if (loadRes && !loadRes.success) {
+              console.error('Failed to load questions to socket server:', loadRes.error);
+            }
+          });
+
+          dispatch(setPin(generatedPin));
+          sessionStorage.setItem('valquiz_pin', generatedPin);
+          setCreating(false);
+        } else {
+          setError(res?.error || 'Failed to create game session on server');
+          setCreating(false);
         }
-        attempts++;
-      }
-
-      if (!unique) {
-        throw new Error('Failed to generate a unique session PIN.');
-      }
-
-      let selectedQuestions = mockQuestions;
-      if (selectedQuizId !== 'default') {
-        const found = customQuizzes.find((q) => q.id === selectedQuizId);
-        if (found && found.questions) {
-          selectedQuestions = found.questions;
-        }
-      }
-
-      const newSession = {
-        pin: generatedPin,
-        status: 'lobby',
-        currentQuestionIndex: -1,
-        createdAt: Date.now(),
-        mode: 'classic',
-        selectedQuizId: selectedQuizId,
-        questions: selectedQuestions,
-        totalQuestions: selectedQuestions.length,
-        showResults: false,
-        hostId: auth.currentUser?.uid || 'HOST'
-      };
-
-      await setDoc(doc(firestore, 'game_sessions', generatedPin), newSession);
-
-      dispatch(setPin(generatedPin));
-      sessionStorage.setItem('valquiz_pin', generatedPin);
-      setCreating(false);
+      });
     } catch (err: any) {
       console.error('Error regenerating session:', err);
       setError(err.message || 'Could not regenerate game session PIN.');
@@ -245,48 +253,88 @@ export const HostLobby: React.FC = () => {
           questions: selectedQuestions,
           totalQuestions: selectedQuestions.length,
         }, { merge: true });
+
+        // Update questions on the socket server
+        socketService.emit('host:load-questions', { pin, questions: selectedQuestions }, (loadRes: any) => {
+          if (loadRes && !loadRes.success) {
+            console.error('Failed to update questions on socket server:', loadRes.error);
+          }
+        });
       } catch (err) {
         console.error('Failed to sync quiz choices to session:', err);
       }
     }
   };
 
-  // Listen to live player joins from Firestore subcollection
+  // Listen to live player joins/leaves from Socket
   useEffect(() => {
     if (!pin) return;
 
-    const unsubscribe = onSnapshot(collection(firestore, 'game_sessions', pin, 'players'), (snapshot) => {
-      const playersList: string[] = [];
-      const playerObjects: any[] = [];
-      snapshot.forEach((d) => {
-        const pData = d.data();
-        playersList.push(pData.nickname);
-        playerObjects.push({
-          nickname: pData.nickname,
-          score: pData.score || 0,
-          streak: pData.streak || 0,
-          rank: pData.rank || 1,
-        });
-      });
-      setLocalPlayers(playersList);
-      dispatch(setPlayers(playerObjects));
-    });
+    socketService.connect();
 
-    return () => unsubscribe();
-  }, [pin, dispatch]);
+    const handleJoined = (data: any) => {
+      const { nickname } = data;
+      setLocalPlayers((prev) => {
+        if (prev.includes(nickname)) return prev;
+        return [...prev, nickname];
+      });
+    };
+
+    const handleLeft = (data: any) => {
+      const { nickname } = data;
+      setLocalPlayers((prev) => prev.filter((p) => p !== nickname));
+    };
+
+    const handleStateSync = (data: any) => {
+      if (data.players) {
+        setLocalPlayers(data.players);
+      }
+    };
+
+    socketService.on('player:joined', handleJoined);
+    socketService.on('player:left', handleLeft);
+    socketService.on('game:state-sync', handleStateSync);
+
+    // Request initial sync in case players joined before mounting/on reconnect
+    socketService.emit('game:request-sync', { pin });
+
+    return () => {
+      socketService.off('player:joined');
+      socketService.off('player:left');
+      socketService.off('game:state-sync');
+    };
+  }, [pin]);
+
+  // Sync Redux players state with local players state
+  useEffect(() => {
+    const playerObjects = localPlayers.map((name) => {
+      const existing = players.find((p) => p.nickname === name);
+      return {
+        nickname: name,
+        score: existing?.score || 0,
+        streak: existing?.streak || 0,
+        rank: existing?.rank || 1,
+      };
+    });
+    dispatch(setPlayers(playerObjects));
+  }, [localPlayers, dispatch]);
 
   const handleStartGame = async () => {
     if (localPlayers.length === 0 || !pin) return;
     setLoading(true);
 
     try {
-      // Transition host state and view in Firestore
+      // 1. Transition host state and view in Firestore (for legacy/archival support)
       await setDoc(doc(firestore, 'game_sessions', pin), {
         status: 'question',
         currentQuestionIndex: 0,
         questionStartTime: Date.now(),
         showResults: false,
       }, { merge: true });
+
+      // 2. Emit host:start to Socket/Valkey server
+      const questionsToLoad = customQuizzes.find((q) => q.id === selectedQuizId)?.questions || mockQuestions;
+      socketService.emit('host:start', { pin, questions: questionsToLoad });
 
       dispatch(setCurrentQuestionIndex(0));
       dispatch(setStatus('question'));

@@ -158,4 +158,74 @@ export class GameManager {
     if (keys.length > 0) await v.del(keys);
     console.log(`🗑️ Game ${pin} destroyed`);
   }
+
+  // ─── Store Player Answer ──────────────────────────────
+  static async storeAnswer(
+    pin: string,
+    qIndex: number,
+    nickname: string,
+    answerIds: string[],
+    responseTimeMs: number,
+  ): Promise<boolean> {
+    const v = await getValkey();
+    const key = `game:${pin}:answers:${qIndex}`;
+    const already = await v.hExists(key, nickname);
+    if (already) return false; // Already answered
+    await v.hSet(key, nickname, JSON.stringify({ answerIds, responseTimeMs, timestamp: Date.now() }));
+    await v.expire(key, GAME_TTL);
+    return true;
+  }
+
+  // ─── Get Answer Count ─────────────────────────────────
+  static async getAnswerCount(pin: string, qIndex: number): Promise<number> {
+    const v = await getValkey();
+    return v.hLen(`game:${pin}:answers:${qIndex}`);
+  }
+
+  // ─── Get All Answers ──────────────────────────────────
+  static async getAnswers(pin: string, qIndex: number): Promise<Record<string, { answerIds: string[]; responseTimeMs: number }>> {
+    const v = await getValkey();
+    const raw = await v.hGetAll(`game:${pin}:answers:${qIndex}`);
+    const answers: Record<string, { answerIds: string[]; responseTimeMs: number }> = {};
+    for (const [nickname, jsonStr] of Object.entries(raw)) {
+      try {
+        answers[nickname] = JSON.parse(jsonStr as string);
+      } catch {}
+    }
+    return answers;
+  }
+
+  // ─── Get Answer Distribution ──────────────────────────
+  static async getAnswerDistribution(pin: string, qIndex: number): Promise<Record<string, number>> {
+    const answers = await GameManager.getAnswers(pin, qIndex);
+    const distribution: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+    for (const answer of Object.values(answers)) {
+      for (const id of answer.answerIds) {
+        if (distribution[id] !== undefined) {
+          distribution[id]++;
+        }
+      }
+    }
+    return distribution;
+  }
+
+  // ─── Clear Answers ────────────────────────────────────
+  static async clearAnswers(pin: string, qIndex: number): Promise<void> {
+    const v = await getValkey();
+    await v.del(`game:${pin}:answers:${qIndex}`);
+  }
+
+  // ─── Hint State ───────────────────────────────────────
+  static async setHintRevealed(pin: string, qIndex: number, revealed: boolean): Promise<void> {
+    const v = await getValkey();
+    await v.set(`game:${pin}:hint:${qIndex}`, revealed ? '1' : '0');
+    await v.expire(`game:${pin}:hint:${qIndex}`, GAME_TTL);
+  }
+
+  static async isHintRevealed(pin: string, qIndex: number): Promise<boolean> {
+    const v = await getValkey();
+    const val = await v.get(`game:${pin}:hint:${qIndex}`);
+    return val === '1';
+  }
 }
+

@@ -5,9 +5,9 @@ import type { RootState } from '../../store';
 import { setCurrentQuestionIndex, setStatus } from '../../store/gameSlice';
 import HostNavigationRail from '../../components/Navigation/HostNavigationRail';
 import LeaderboardBar from '../../components/Leaderboard/LeaderboardBar';
-import { firestore, setDoc } from '../../services/firebase';
-import { doc, deleteDoc, getDocs, collection } from 'firebase/firestore';
+import socketService from '../../services/socket';
 import { Trophy, ArrowRight, Award } from 'lucide-react';
+
 
 export const HostLeaderboard: React.FC = () => {
   const navigate = useNavigate();
@@ -21,46 +21,24 @@ export const HostLeaderboard: React.FC = () => {
 
   const isLastQuestion = currentQuestionIndex >= questions.length - 1;
 
-  const handleNextStep = async () => {
+  const handleNextStep = () => {
     if (!pin) return;
 
-    if (isLastQuestion) {
-      try {
-        // Transition to podium in Firestore
-        await setDoc(doc(firestore, 'game_sessions', pin), {
-          status: 'podium'
-        }, { merge: true });
-
-        dispatch(setStatus('podium'));
-        navigate('/a/host/podium');
-      } catch (err) {
-        console.error('Failed to transition to podium:', err);
+    socketService.emit('host:next-question', { pin }, (res: any) => {
+      if (res && res.success) {
+        if (res.finished) {
+          dispatch(setStatus('podium'));
+          navigate('/a/host/podium');
+        } else {
+          const nextIdx = currentQuestionIndex + 1;
+          dispatch(setCurrentQuestionIndex(nextIdx));
+          dispatch(setStatus('question'));
+          navigate('/a/host/question');
+        }
+      } else {
+        console.error('Failed to advance to the next question:', res?.error || 'Unknown error');
       }
-    } else {
-      try {
-        const nextIdx = currentQuestionIndex + 1;
-
-        // 1. Clear all answers from the subcollection
-        const answersSnap = await getDocs(collection(firestore, 'game_sessions', pin, 'answers'));
-        const deletePromises = answersSnap.docs.map((d) => deleteDoc(d.ref));
-        await Promise.all(deletePromises);
-
-        // 2. Advance question index and revert status to question
-        await setDoc(doc(firestore, 'game_sessions', pin), {
-          status: 'question',
-          currentQuestionIndex: nextIdx,
-          questionStartTime: Date.now(),
-          showResults: false,
-          isHintRevealed: false
-        }, { merge: true });
-
-        dispatch(setCurrentQuestionIndex(nextIdx));
-        dispatch(setStatus('question'));
-        navigate('/a/host/question');
-      } catch (err) {
-        console.error('Failed to advance to the next question:', err);
-      }
-    }
+    });
   };
 
   return (
