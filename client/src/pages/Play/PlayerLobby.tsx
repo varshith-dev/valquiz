@@ -65,9 +65,11 @@ export const PlayerLobby: React.FC = () => {
   // Listen to game status, joins, leaves and sync states from Socket.IO
   useEffect(() => {
     const activePin = pin || sessionStorage.getItem('valquiz_pin');
-    if (!activePin || !nickname) return;
+    if (!activePin) return;
 
     socketService.connect();
+
+    if (!nickname) return;
 
     const handleJoined = (data: any) => {
       const { nickname: joinedName } = data;

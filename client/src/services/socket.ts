@@ -70,8 +70,8 @@ class SocketService {
   }
 
   public emit(event: string, data: any, callback?: (...args: any[]) => void) {
-    if (!this.socket?.connected) {
-      console.warn(`Socket not connected, cannot emit '${event}'`);
+    if (!this.socket) {
+      console.warn(`Socket not initialized, cannot emit '${event}'`);
       return;
     }
     if (callback) {
